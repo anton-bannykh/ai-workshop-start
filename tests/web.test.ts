@@ -347,6 +347,38 @@ test('the page shows the SKILL.md formatted, with a Raw tab for the file as it i
   assert.doesNotMatch(style, /^\s*(?:ul|ol|li)\b/m);
 });
 
+test('the list of repositories and skills and the SKILL.md scroll independently, the page itself does not', async () => {
+  const style = /<style>([\s\S]*?)<\/style>/.exec((await get('/')).text)?.[1] ?? '';
+  /** The declarations of a rule, by its selector; the last one wins, as in CSS. */
+  const rule = (selector: string) => {
+    const declarations: Record<string, string> = {};
+    for (const [, selectors, body] of style.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{([^}]*)\}/g)) {
+      if (!selectors.split(',').map((s) => s.trim()).includes(selector)) continue;
+      for (const declaration of body.split(';')) {
+        const [property, ...value] = declaration.split(':');
+        if (value.length) declarations[property.trim()] = value.join(':').trim();
+      }
+    }
+    return declarations;
+  };
+  // The page is as tall as the window, and never scrolls as a whole...
+  const body = rule('body');
+  assert.match(body.height ?? '', /^100d?vh$/);
+  assert.equal(body.overflow, 'hidden');
+  assert.equal(body.display, 'flex');
+  assert.equal(body['flex-direction'], 'column');
+  // ...the two panes take the rest of it, however tall the header is, and no taller...
+  const main = rule('main');
+  assert.equal(main.flex, '1');
+  assert.equal(main['min-height'], '0');
+  assert.equal(main['grid-template-rows'], 'minmax(0, 1fr)');
+  // ...and each scrolls on its own.
+  for (const pane of ['#list', '#skill']) {
+    assert.equal(rule(pane).overflow, 'auto', pane);
+    assert.equal(rule(pane)['min-height'], '0', pane);
+  }
+});
+
 const FILE = `https://github.com/JetBrains/example/blob/${EXAMPLE_COMMIT}/.claude/skills/commits/SKILL.md`;
 
 test('formatting: the front matter as a table, the Markdown rendered', () => {

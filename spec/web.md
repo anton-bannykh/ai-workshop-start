@@ -6,6 +6,7 @@ Listens on *127.0.0.1* only; *nothing is stored*.
 - A **field** for a repository or organization link (or a directory, as in `scan`)
 - **Tab** in the field completes the sample link, while the field is empty or its start; otherwise Tab moves on
 - The repository: `<id> · N skills`
+- The list of skills and the chosen SKILL.md **scroll independently**, each on its own; the page, as tall as the window, does not
 - A **filter** on the top right: as you type, only the skills whose **name** contains it, ignoring case; *in the page*, no new scan
 - While filtering, the counts are of the skills it keeps: `<id> · 2 of 42 skills`, and the same in the summary
 - Each skill: **name**, description, link (path in **bold**), `also in` copies
