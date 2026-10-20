@@ -66,6 +66,9 @@ On each request you addressed, reply briefly: what changed and the commit. An in
 a review or a conversation comment: `gh pr comment <number> --repo anton-bannykh/ai-workshop-start --body '…'`.
 Leave resolving threads to the reviewer.
 
+Then record a demo of the change with the [record-demo](../record-demo/SKILL.md) skill and post it in a PR
+comment: what the reviewers asked for, working.
+
 ## Report
 
 To the user: what was implemented (with links), what was ignored and why, and anything left open for them to decide.
