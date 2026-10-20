@@ -65,9 +65,11 @@ It uploads to the `demos` branch of `origin`, your fork, and prints the Markdown
 `.webp`: the sheet is for checking.
 
 - **Creating a PR:** open it, publish with its number, then add a `## Demo` section to the description with
-  the Markdown and one line on what it shows: `gh pr edit <number> --repo anton-bannykh/ai-workshop-start --body-file …`.
-- **Any later push:** record again, publish, and post the Markdown in **one** PR comment for the push, with
-  what changed since the last demo. Leave the description's demo as it was.
+  the Markdown and one line on what it shows, after the `## Screenshots` section of
+  [visual-tests](../visual-tests/SKILL.md#in-the-pr): `gh pr edit <number> --repo anton-bannykh/ai-workshop-start --body-file …`.
+- **Any later push:** record again, publish, and post **one** PR comment for the push: what changed, the
+  `## Screenshots` section of [visual-tests](../visual-tests/SKILL.md#in-the-pr), then the demo, with what changed
+  since the last one. Leave the description's demo as it was.
 - **A push that addresses review** (`address-review`): that one comment is also the reply to the review and
   conversation comments it addresses: what changed for each, then the demo of it working. Replies in inline
   threads stay text only, without the demo.
