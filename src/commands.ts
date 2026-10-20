@@ -67,11 +67,11 @@ async function serveCommand(args: string[], context: Context) {
   context.print(`Skill Atlas at ${address}`);
 }
 
-/** `<owner> · N skills in M repositories`, then each repository with skills, after a blank line. */
+/** `<owner> · N skills in M repositories · S scanned`, then each repository with skills, after a blank line. */
 function printOrganization(result: OrganizationScanResult, context: Context) {
   const withSkills = result.repositories.filter(({ skills }) => skills.length > 0);
   const total = withSkills.reduce((sum, { skills }) => sum + skills.length, 0);
-  context.print(`${result.organization.id} · ${count(total)} in ${withSkills.length} ${withSkills.length === 1 ? 'repository' : 'repositories'}`);
+  context.print(`${result.organization.id} · ${count(total)} in ${withSkills.length} ${withSkills.length === 1 ? 'repository' : 'repositories'} · ${result.scanned} scanned`);
   for (const { repository, skills } of withSkills) {
     context.print('');
     printRepository(repository, skills, context);

@@ -134,9 +134,10 @@ test('JetBrains, the organization: every repository with skills, each as when it
     assert.match(line, /^warning: JetBrains\/[\w.-]+: (?:\.agents|\.claude|\.github|agent)\/skills\/[^/]+\/SKILL\.md: /, line);
   }
   const [header, ...groups] = result.stdout.trimEnd().split('\n\n');
-  const summary = /^JetBrains · (\d+) skills in (\d+) repositories$/.exec(header);
+  const summary = /^JetBrains · (\d+) skills in (\d+) repositories · (\d+) scanned$/.exec(header);
   assert.ok(summary, header);
   assert.equal(groups.length, Number(summary[2]));
+  assert.ok(Number(summary[3]) >= groups.length, header);
   const ids = groups.map((group) => group.split('\n')[0].split(' · ')[0]);
   assert.deepEqual(ids, [...ids].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)), 'sorted by id');
   // Each repository's skills are the ones its own scan finds.

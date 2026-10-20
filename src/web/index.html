@@ -194,12 +194,12 @@
    * repository with warnings, or with a skill that has one, has ❗ in its heading; its own warnings
    * are above its skills, a skill's are the skill's.
    */
-  function renderOrganization({ organization, repositories }) {
+  function renderOrganization({ organization, repositories, scanned }) {
     const total = repositories.reduce((sum, { skills }) => sum + skills.length, 0);
     const withSkills = repositories.filter(({ skills }) => skills.length > 0).length;
     summarize = (shown, keeps) => filtering()
-      ? `${organization.id} · ${shown} of ${count(total, 'skill', 'skills')} in ${keeps.filter(Boolean).length} of ${count(withSkills, 'repository', 'repositories')}`
-      : `${organization.id} · ${count(total, 'skill', 'skills')} in ${count(withSkills, 'repository', 'repositories')}`;
+      ? `${organization.id} · ${shown} of ${count(total, 'skill', 'skills')} in ${keeps.filter(Boolean).length} of ${count(withSkills, 'repository', 'repositories')} · ${scanned} scanned`
+      : `${organization.id} · ${count(total, 'skill', 'skills')} in ${count(withSkills, 'repository', 'repositories')} · ${scanned} scanned`;
     $('skills').replaceChildren(...repositories.map(({ repository, skills, warnings }) => element('li', { className: 'repository' },
       element('details', {},
         element('summary', {}, warned(warnings, skills) ? '❗ ' : '', `${repository.id} · `, element('span', { className: 'count' })),

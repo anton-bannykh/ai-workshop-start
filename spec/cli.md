@@ -14,7 +14,7 @@ build-tools-bump-gradle-api — Bumps the Gradle API…
 - `also in <paths>` for copies; warnings go to *stderr*; a skill's names its SKILL.md: `<path>: <warning>`
 ## An organization
 ```
-JetBrains · 132 skills in 16 repositories
+JetBrains · 132 skills in 16 repositories · 688 scanned
 
 JetBrains/Exposed · 2 skills
 …
@@ -22,6 +22,7 @@ JetBrains/Exposed · 2 skills
 JetBrains/MPS · 42 skills
 …
 ```
+- The heading: the skills, the repositories *with* skills, and how many repositories were *scanned*, with skills or not
 - Each repository as above, after a *blank line*: easy to see where one ends
-- While it runs: `Scanning JetBrains: 5 of 688 repositories, 57 skills so far…`; of all the owner's repositories
+- While it runs: `Scanning JetBrains: 5 of 688 repositories, 57 skills so far…`; of all the owner's repositories the token can read
 - Each repository's warning names its repository; by repository, sorted by id

@@ -60,11 +60,12 @@ export async function openGitHubOrganization(input: string, options: GitHubOptio
     `Organization or user not found: https://github.com/${name.owner}`,
   );
   const listing = `${API}/${owner.type === 'Organization' ? 'orgs' : 'users'}/${owner.login}/repos`;
+  const warnings: string[] = [];
   return {
     organization: { id: owner.login, url: `https://github.com/${owner.login}` },
-    warnings: [],
+    warnings,
     list: options.token
-      ? (found) => lookUp(github, owner.login, found)
+      ? (found) => lookUp(github, owner.login, found, warnings)
       : async ({ total, repository }) => {
         for await (const page of repositories(github, listing)) {
           total(page.length);
@@ -75,7 +76,7 @@ export async function openGitHubOrganization(input: string, options: GitHubOptio
 }
 
 type RepositoriesPage = {
-  repositoryOwner: { repositories: { totalCount: number; pageInfo: { hasNextPage: boolean; endCursor: string }; nodes: { id: string; nameWithOwner: string }[] } };
+  repositoryOwner: { repositories: { totalCount: number; pageInfo: { hasNextPage: boolean; endCursor: string }; nodes: ({ id: string; nameWithOwner: string } | null)[] } };
 };
 
 type Entries = { entries: { name: string; type: string; mode: number; object?: Entries | null }[] } | null;
@@ -103,15 +104,23 @@ fragment directories on GitObject { ... on Tree { entries { name type mode objec
 /**
  * Lists the owner's repositories, 100 a page, and looks into each one's skill roots as its page comes:
  * 10 repositories a query, 8 queries at a time. Only one with skills is to be scanned.
+ * The total is the repositories listed, page by page: GitHub's `totalCount` may count ones the token
+ * cannot read, which it does not list; if it does, a warning says how many.
  */
-async function lookUp(github: Client, login: string, { total, checked, repository }: Listing): Promise<void> {
+async function lookUp(github: Client, login: string, { total, checked, repository }: Listing, warnings: string[]): Promise<void> {
   const queries = pool(8);
+  let counted = 0;
+  let listed = 0;
   for (let after: string | null = null; !queries.failed;) {
     const answer: RepositoriesPage = await github.graphql(REPOSITORIES, { login, after });
     const page = answer.repositoryOwner.repositories;
-    if (after === null) total(page.totalCount);
-    for (let start = 0; start < page.nodes.length; start += 10) {
-      const batch = page.nodes.slice(start, start + 10);
+    counted = page.totalCount;
+    // A repository the token may not read can be left out of a page, or answered as null.
+    const nodes = page.nodes.filter((node) => node !== null);
+    listed += nodes.length;
+    total(nodes.length);
+    for (let start = 0; start < nodes.length; start += 10) {
+      const batch = nodes.slice(start, start + 10);
       void queries.run(async () => {
         let answer: { nodes: ({ nameWithOwner: string; defaultBranchRef: { target: { oid: string } } | null } & Record<string, Entries> | null)[] };
         try {
@@ -142,6 +151,9 @@ async function lookUp(github: Client, login: string, { total, checked, repositor
     after = page.pageInfo.endCursor;
   }
   await queries.done();
+  if (counted > listed) {
+    warnings.push(`GitHub counts ${counted} repositories, but lists only ${listed} to this token; the other ${counted - listed} cannot be read with it and were not scanned`);
+  }
 }
 
 /** `<root>/<directory>/<file>` for each regular file in each of the root's directories. */

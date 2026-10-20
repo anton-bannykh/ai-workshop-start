@@ -40,7 +40,7 @@ test('scan prints the organization, then each repository with skills under its o
   assert.equal(
     organization.stdout,
     [
-      'JetBrains · 4 skills in 3 repositories',
+      'JetBrains · 4 skills in 3 repositories · 6 scanned',
       '',
       'JetBrains/example · 1 skill',
       'commits — Write commit messages the way this repository does.',
@@ -82,10 +82,15 @@ test('a private repository: its SKILL.md is read with the token', () => {
 test('scan shows how far it is while it runs, and clears it before the result', async () => {
   const { progress } = organization;
   assert.equal(progress[0], 'Scanning https://github.com/JetBrains…');
-  // GraphQL counts JetBrains' 6 repositories; one line as each is done, looked into or scanned.
-  const counts = progress.slice(1, -1).map((line) => Number(/^Scanning JetBrains: (\d) of 6 repositories, \d skills? so far…$/.exec(line)?.[1]));
-  assert.equal(counts[0], 0);
+  // GraphQL lists JetBrains' 6 repositories, 3 a page; one line as each page is listed, and as each
+  // repository is done, looked into or scanned. The total is of the repositories listed so far.
+  const lines = progress.slice(1, -1).map((line) => /^Scanning JetBrains: (\d) of (\d) repositories, \d skills? so far…$/.exec(line)!.slice(1).map(Number));
+  const counts = lines.map(([done]) => done);
+  const totals = lines.map(([, total]) => total);
+  assert.deepEqual(lines[0], [0, 3]);
   assert.deepEqual(counts, [...counts].sort(), 'never going back');
+  assert.deepEqual(totals, [...totals].sort(), 'never going back');
+  assert.ok(lines.every(([done, total]) => done <= total));
   assert.equal(progress.at(-2), 'Scanning JetBrains: 6 of 6 repositories, 4 skills so far…');
   assert.equal(progress.at(-1), '');
   // A repository: the first line, then cleared.
@@ -138,7 +143,7 @@ test('a user without a token: every repository but the forks, through its skill 
   assert.deepEqual(scanned, {
     code: 0,
     stdout: [
-      'octo · 1 skill in 1 repository',
+      'octo · 1 skill in 1 repository · 3 scanned',
       '',
       'octo/notes · 1 skill',
       'notes — Take notes.',
@@ -162,7 +167,7 @@ test('a user with a token: GraphQL lists the repositories the user owns', async 
     'test',
   );
   assert.equal(scanned.code, 0, scanned.stderr);
-  assert.match(scanned.stdout, /^octo · 1 skill in 1 repository\n\nocto\/notes · 1 skill\nnotes — Take notes\./);
+  assert.match(scanned.stdout, /^octo · 1 skill in 1 repository · 2 scanned\n\nocto\/notes · 1 skill\nnotes — Take notes\./);
   assert.equal(scanned.stderr, '');
 });
 
@@ -178,7 +183,37 @@ test('more than 10 repositories: 10 a GraphQL query, and over 100, a page more',
     recording[graphql({ ids: batch.map(([, id]) => id) })] = { status: 200, body: { data: { nodes: batch.map(([name]) => skillRoots(name, OCTO_COMMIT)) } } };
   }
   const result = await scanOrganization(await openGitHubOrganization('https://github.com/many', { fetch: replay(recording), token: 'test' }));
-  assert.deepEqual(result, { organization: { id: 'many', url: 'https://github.com/many' }, repositories: [], warnings: [] });
+  assert.deepEqual(result, { organization: { id: 'many', url: 'https://github.com/many' }, repositories: [], scanned: 105, warnings: [] });
+});
+
+test('the repositories to scan are the ones GitHub lists to the token: more counted than listed → a warning with both numbers', async () => {
+  const page = repositoriesPage(2034, [['big/a', 'B1'], ['big/b', 'B2']]);
+  // A repository the token cannot read: left out of the page, or answered as null in it.
+  page.body.data.repositoryOwner.repositories.nodes.push(null as never);
+  const recording: Recording = {
+    'https://api.github.com/users/big': { status: 200, body: { login: 'big', type: 'Organization' } },
+    [graphql({ login: 'big', after: null })]: page,
+    [graphql({ ids: ['B1', 'B2'] })]: {
+      status: 200,
+      body: { data: { nodes: [skillRoots('big/a', OCTO_COMMIT, { '.claude/skills': { notes: ['SKILL.md'] } }), skillRoots('big/b', OCTO_COMMIT)] } },
+    },
+    [`https://raw.githubusercontent.com/big/a/${OCTO_COMMIT}/.claude/skills/notes/SKILL.md`]: { status: 200, body: '---\nname: notes\ndescription: Take notes.\n---\n' },
+  };
+  const progress: { done: number; total: number }[] = [];
+  const result = await scanOrganization(
+    await openGitHubOrganization('https://github.com/big', { fetch: replay(recording), token: 'test' }),
+    ({ done, total }) => progress.push({ done, total }),
+  );
+  assert.deepEqual(new Set(progress.map(({ total }) => total)), new Set([2]), 'of the 2 listed, not the 2034 counted');
+  assert.deepEqual(progress.at(-1), { done: 2, total: 2 });
+  assert.deepEqual(result.repositories.map(({ repository }) => repository.id), ['big/a']);
+  assert.equal(result.scanned, 2);
+  assert.deepEqual(result.warnings, ['GitHub counts 2034 repositories, but lists only 2 to this token; the other 2032 cannot be read with it and were not scanned']);
+
+  const scanned = await scanWith(recording, 'https://github.com/big', 'test');
+  assert.equal(scanned.code, 0);
+  assert.match(scanned.stdout, /^big · 1 skill in 1 repository · 2 scanned\n/);
+  assert.equal(scanned.stderr, 'warning: GitHub counts 2034 repositories, but lists only 2 to this token; the other 2032 cannot be read with it and were not scanned');
 });
 
 /** An organization of three repositories over GraphQL, with `answer` for the query into their skill roots. */
@@ -229,7 +264,7 @@ test('an organization without skills: the heading, and nothing else', async () =
     },
     'https://github.com/quiet',
   );
-  assert.deepEqual(scanned, { code: 0, stdout: 'quiet · 0 skills in 0 repositories', stderr: '' });
+  assert.deepEqual(scanned, { code: 0, stdout: 'quiet · 0 skills in 0 repositories · 0 scanned', stderr: '' });
 });
 
 test('unknown organization → a clear message, exit code 1', async () => {
@@ -293,6 +328,7 @@ test('web: GET /api/scan for an organization → its repositories with skills, e
   assert.equal(build.warnings.length, 1);
   assert.match(build.warnings[0], /^malformed front matter: [^\n]*; using the directory name$/);
   assert.deepEqual(lint.warnings, []);
+  assert.deepEqual(body.scanned, 6);
   assert.deepEqual(body.warnings, []);
 });
 
@@ -301,7 +337,8 @@ test('web: GET /api/scan?repo=…&progress → a JSON line as each repository is
   assert.equal(response.status, 200);
   assert.match(response.headers.get('content-type') ?? '', /^application\/x-ndjson/);
   const lines = (await response.text()).trimEnd().split('\n').map((line) => JSON.parse(line));
-  assert.deepEqual(lines[0].progress, { done: 0, total: 6, skills: 0 });
+  // The total grows as each page of 3 is listed.
+  assert.deepEqual(lines[0].progress, { done: 0, total: 3, skills: 0 });
   assert.deepEqual(lines.at(-2).progress, { done: 6, total: 6, skills: 4 });
   const plain = await (await fetch(new URL(`/api/scan?repo=${encodeURIComponent('https://github.com/JetBrains')}`, address))).json();
   assert.deepEqual(lines.at(-1), { result: plain });

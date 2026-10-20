@@ -45,11 +45,13 @@ export type RepositoryResult = { repository: Repository; skills: Skill[]; warnin
 
 /**
  * The repositories with skills, or with warnings, by id: one that could not be scanned has its
- * warnings and no skills. `warnings` are the organization's own.
+ * warnings and no skills. `scanned`: how many repositories were, with skills or not. `warnings` are
+ * the organization's own.
  */
 export type OrganizationScanResult = {
   organization: Organization;
   repositories: RepositoryResult[];
+  scanned: number;
   warnings: string[];
 };
 
@@ -105,6 +107,7 @@ export async function scanOrganization(source: OrganizationSource, progress?: (p
   return {
     organization: source.organization,
     repositories: sortRepositories(results.filter((result) => result.skills.length > 0 || result.warnings.length > 0)),
+    scanned: done,
     warnings: source.warnings,
   };
 }

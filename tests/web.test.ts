@@ -199,18 +199,18 @@ test('the filter on an organization: only the skills it keeps, only the reposito
   assert.deepEqual(groups.map((group) => group.querySelectorAll('details')[0]?.open), [false, false, false, false]);
   // The counts are of the skills the filter keeps.
   assert.equal(counts()[3], '1 of 2 skills');
-  assert.equal($('summary').textContent, 'JetBrains · 1 of 4 skills in 1 of 3 repositories');
+  assert.equal($('summary').textContent, 'JetBrains · 1 of 4 skills in 1 of 3 repositories · 6 scanned');
   type('i');
   assert.deepEqual(shown(), [['commits'], ['build', 'lint']]);
   assert.deepEqual(counts(), ['1 of 1 skill', '0 of 0 skills', '0 of 1 skill', '2 of 2 skills']);
   type('nothing');
   assert.deepEqual(shown(), []);
   assert.equal($('no-match').hidden, false);
-  assert.equal($('summary').textContent, 'JetBrains · 0 of 4 skills in 0 of 3 repositories');
+  assert.equal($('summary').textContent, 'JetBrains · 0 of 4 skills in 0 of 3 repositories · 6 scanned');
   type('');
   assert.deepEqual(shown(), [['commits'], [], ['deploy'], ['build', 'lint']]);
   assert.deepEqual(counts(), ['1 skill', '0 skills', '1 skill', '2 skills']);
-  assert.equal($('summary').textContent, 'JetBrains · 4 skills in 3 repositories');
+  assert.equal($('summary').textContent, 'JetBrains · 4 skills in 3 repositories · 6 scanned');
 });
 
 /** The text in an element and all it holds. */
@@ -284,8 +284,8 @@ test('while an organization is scanned, the page shows how far it is', async () 
   Object.defineProperty($('summary'), 'textContent', { get: () => text, set: (value: string) => { text = value; summaries.push(value); } });
   await rescan();
   assert.equal(summaries[0], 'Scanning…');
-  assert.match(summaries[1], /^Scanning… 0 of 6 repositories, 0 skills so far$/);
-  assert.deepEqual(summaries.slice(-2), ['Scanning… 6 of 6 repositories, 4 skills so far', 'JetBrains · 4 skills in 3 repositories']);
+  assert.match(summaries[1], /^Scanning… 0 of 3 repositories, 0 skills so far$/);
+  assert.deepEqual(summaries.slice(-2), ['Scanning… 6 of 6 repositories, 4 skills so far', 'JetBrains · 4 skills in 3 repositories · 6 scanned']);
 });
 
 test('a GitHub repository: its skills with name, description, pinned link and their SKILL.md', async () => {

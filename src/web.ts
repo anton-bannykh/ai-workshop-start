@@ -57,10 +57,11 @@ export function createWebServer(open: (input: string) => Promise<Source | Organi
 async function scanned(open: (input: string) => Promise<Source | OrganizationSource>, input: string, progress?: (progress: Progress) => void) {
   const source = await open(input);
   if ('organization' in source) {
-    const { organization, repositories, warnings } = await scanOrganization(source, progress);
+    const { organization, repositories, scanned, warnings } = await scanOrganization(source, progress);
     return {
       organization,
       repositories: repositories.map(({ repository, skills, warnings }) => ({ ...withPages(repository, skills), warnings })),
+      scanned,
       warnings,
     };
   }

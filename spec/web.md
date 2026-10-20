@@ -11,7 +11,7 @@ Listens on *127.0.0.1* only; *nothing is stored*.
 - Each skill: **name**, description, link (path in **bold**), `also in` copies
 - Choosing a skill shows **its SKILL.md**, *formatted*: the front matter as a table, the Markdown rendered
 - A **Raw** tab: the SKILL.md as it is in the file
-- An organization: `<owner> · N skills in M repositories`; each repository a **group** with its heading,
+- An organization: `<owner> · N skills in M repositories · S scanned`; each repository a **group** with its heading,
   `<id> · N skills`, *collapsed* until opened; **Expand all** / **Collapse all**;
   the filter hides a group with no skill it keeps
 - A repository with warnings, its own or a skill's: ❗ in its heading; its own *in its group*, above its skills;
@@ -24,8 +24,8 @@ Listens on *127.0.0.1* only; *nothing is stored*.
 `GET /api/scan?repo=<GitHub URL | directory>` → JSON
 `{ repository, skills, warnings }`; each skill has its `link`, `text` (the SKILL.md), `html` and `warnings`, its own;
 `warnings`, the repository's
-An organization → `{ organization, repositories: [{ repository, skills, warnings }], warnings }`: the repositories with
-skills or warnings, each with its own; `warnings`, the organization's
+An organization → `{ organization, repositories: [{ repository, skills, warnings }], scanned, warnings }`: the repositories
+with skills or warnings, each with its own; `scanned`, how many repositories were; `warnings`, the organization's
 `&progress` → `application/x-ndjson`: `{ progress: { done, total, skills } }` as each repository is done,
 then `{ result }`, the same JSON; or `{ status, error }`. The page asks this way
 ## Formatting

@@ -22,12 +22,16 @@ Skill: id = `repo:path`, name, description, commit, text (the SKILL.md), warning
 - Only the repositories *with skills* (the web view: or with warnings); forks left out
 - With `GITHUB_TOKEN`: **GraphQL** lists *every* repository, 100 a page, and looks into each one's skill roots
   at its commit, 10 repositories a query, 8 queries at a time; a repository with no skill is not opened
+- The repositories to scan: those GitHub *lists* to the token, counted page by page as they come. GitHub's
+  `totalCount` may count more, ones the token cannot read (e.g. a private one behind SAML single sign-on the token
+  is not authorized for) → a *warning* with both numbers; those are not scanned
 - *No code search*: it returns 1000 results at most, and owner-wide it leaves files out and names ones gone
 - Without it: every repository opened; only a small owner fits in the rate limit
 - An empty repository: no skills, *no warning*
 - A repository that cannot be read → a *warning*, its own; the scan goes on
 - A GraphQL query that times out → asked *once more*; failing again → a warning for each of its repositories
-- 8 repositories at a time; *progress* as each one is done: how many of all the owner's, the skills so far
+- 8 repositories at a time; *progress* as each one is done: how many of all the owner's listed so far, the skills so far
+- The result: the repositories with skills, and how many were *scanned*: most have no skills
 - Unknown owner, unreachable GitHub, the rate limit → a clear message, exit code 1
 ## What is a project skill?
 `<root>/<name>/SKILL.md`, `<root>` is one of:
