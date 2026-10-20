@@ -2,6 +2,7 @@ import { findSkills, type SkillFile } from './find.ts';
 import { AtlasError, Unavailable } from './errors.ts';
 import { sortRepositories, sortSkills, type Organization, type Repository, type Skill } from './model.ts';
 import { parseSkill } from './parse.ts';
+import { pool } from './pool.ts';
 
 /** A repository to scan: its files, and how to read them. */
 export type Source = {
@@ -19,18 +20,35 @@ export type ScanResult = { repository: Repository; skills: Skill[]; warnings: st
 /** A repository of an organization, opened only when its turn comes. */
 export type RepositorySource = { id: string; open(): Promise<Source> };
 
-/** An organization to scan: its repositories that may have skills. */
+/** What listing an organization's repositories tells, as it goes. */
+export type Listing = {
+  /** The owner has that many more repositories: how many there are to scan in all. */
+  total(count: number): void;
+  /** That many of them have no skill: scanned, without being opened. */
+  checked(count: number): void;
+  /** One that may have skills, to open and scan. */
+  repository(repository: RepositorySource): void;
+};
+
+/** An organization to scan: its repositories, as they are listed. */
 export type OrganizationSource = {
   organization: Organization;
-  repositories: RepositorySource[];
+  /** Lists the repositories; done once each one is told of. */
+  list(listing: Listing): Promise<void>;
   /** What listing the repositories had to leave out. */
   warnings: string[];
 };
 
-/** Only the repositories with skills, by id; every warning names its repository. */
+/** A repository of an organization, with its own warnings. */
+export type RepositoryResult = { repository: Repository; skills: Skill[]; warnings: string[] };
+
+/**
+ * The repositories with skills, or with warnings, by id: one that could not be scanned has its
+ * warnings and no skills. `warnings` are the organization's own.
+ */
 export type OrganizationScanResult = {
   organization: Organization;
-  repositories: { repository: Repository; skills: Skill[] }[];
+  repositories: RepositoryResult[];
   warnings: string[];
 };
 
@@ -41,7 +59,7 @@ export async function scan(source: Source): Promise<ScanResult> {
   const results = await Promise.all(files.map((file) => readSkill(source, file)));
   return {
     repository: source.repository,
-    skills: sortSkills(results.flatMap((result) => (result.skill ? [result.skill] : []))),
+    skills: sortSkills(results.map((result) => result.skill)),
     warnings: [...source.warnings, ...results.flatMap((result) => (result.warning ? [result.warning] : []))],
   };
 }
@@ -50,66 +68,65 @@ export async function scan(source: Source): Promise<ScanResult> {
 export type Progress = { done: number; total: number; skills: number };
 
 /**
- * Every repository opened and scanned, 8 at a time; one that cannot be read is skipped with a warning.
- * `progress` hears of each repository done.
+ * Every repository listed is scanned, 8 at a time, as soon as it is; one that cannot be read is
+ * skipped with a warning. `progress` hears of each repository done.
  */
 export async function scanOrganization(source: OrganizationSource, progress?: (progress: Progress) => void): Promise<OrganizationScanResult> {
-  const total = source.repositories.length;
+  let total = 0;
   let done = 0;
   let skills = 0;
-  let stopped = false;
-  progress?.({ done, total, skills });
-  const results = await mapLimited(source.repositories, 8, async ({ id, open }) => {
-    try {
-      const result = await scan(await open());
-      skills += result.skills.length;
-      return { id, result, warnings: result.warnings };
-    } catch (error) {
-      // GitHub not answering at all stops the scan; anything else only skips this repository.
-      if (!(error instanceof AtlasError) || error instanceof Unavailable) {
-        stopped = true;
-        throw error;
-      }
-      return { id, result: undefined, warnings: [`${error.message}; skipped`] };
-    } finally {
-      if (!stopped) progress?.({ done: ++done, total, skills });
-    }
+  // GitHub not answering at all stops the scan; anything else only skips its repository.
+  let stopped: { error: unknown } | undefined;
+  const report = () => { if (!stopped) progress?.({ done, total, skills }); };
+  const scans = pool(8);
+  const results: RepositoryResult[] = [];
+  await source.list({
+    total(count) { total += count; report(); },
+    checked(count) { done += count; report(); },
+    repository({ id, open }) {
+      if (stopped) throw stopped.error; // and so the listing stops too
+      void scans.run(async () => {
+        try {
+          const result = await scan(await open());
+          skills += result.skills.length;
+          results.push(result);
+        } catch (error) {
+          if (!(error instanceof AtlasError) || error instanceof Unavailable) {
+            stopped ??= { error };
+            throw error;
+          }
+          const [organization, name] = id.split('/');
+          const repository = { id, organization, name, url: `${source.organization.url}/${name}`, commit: '' };
+          results.push({ repository, skills: [], warnings: [`${error.message}; skipped`] });
+        }
+        done++;
+        report();
+      });
+    },
   });
-  const byId = [...results].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  const scanned = results.flatMap(({ result }) => (result ? [result] : []));
+  await scans.done();
   return {
     organization: source.organization,
-    repositories: sortRepositories(scanned.filter((result) => result.skills.length > 0))
-      .map(({ repository, skills }) => ({ repository, skills })),
-    warnings: [...source.warnings, ...byId.flatMap(({ id, warnings }) => warnings.map((warning) => `${id}: ${warning}`))],
+    repositories: sortRepositories(results.filter((result) => result.skills.length > 0 || result.warnings.length > 0)),
+    warnings: source.warnings,
   };
 }
 
-/** `map` over the items, at most `limit` at a time, the results in the items' order; the first failure stops it. */
-async function mapLimited<T, R>(items: T[], limit: number, map: (item: T) => Promise<R>): Promise<R[]> {
-  const results: R[] = new Array(items.length);
-  let next = 0;
-  let failed = false;
-  const worker = async () => {
-    while (next < items.length && !failed) {
-      const index = next++;
-      try {
-        results[index] = await map(items[index]);
-      } catch (error) {
-        failed = true;
-        throw error;
-      }
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-  return results;
-}
-
-async function readSkill(source: Source, file: SkillFile): Promise<{ skill?: Skill; warning?: string }> {
-  const bytes = await source.read(file.path);
-  if (!bytes) return { warning: `${file.path}: listed, but not found at the scanned commit; skipped` };
-  const text = new TextDecoder().decode(bytes);
-  const parsed = parseSkill(text);
+/**
+ * The skill in the file. One that cannot be read is still a skill, there at the commit: it is listed
+ * by its directory, without a description, and with a warning that says why.
+ */
+async function readSkill(source: Source, file: SkillFile): Promise<{ skill: Skill; warning?: string }> {
+  let bytes: Uint8Array | undefined;
+  let failure = 'not found at the scanned commit';
+  try {
+    bytes = await source.read(file.path);
+  } catch (error) {
+    if (!(error instanceof AtlasError) || error instanceof Unavailable) throw error;
+    failure = error.message;
+  }
+  const text = bytes ? new TextDecoder().decode(bytes) : '';
+  const parsed = bytes ? parseSkill(text) : { name: undefined, description: '', warning: `cannot be read (${failure}); listed by its directory name, without a description` };
   const skill: Skill = {
     id: `${source.repository.id}:${file.path}`,
     repository: source.repository.id,

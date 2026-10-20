@@ -4,11 +4,11 @@
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
 import { bold, run } from '../src/commands.ts';
-import { openGitHubOrganization, parseGitHubOwnerUrl, parseGitHubUrl } from '../src/core/github.ts';
-import { replay, type Recording } from '../src/core/replay.ts';
+import { openGitHubOrganization, parseGitHubOwnerUrl, parseGitHubUrl, type Fetch } from '../src/core/github.ts';
+import { graphql, replay, type Recording } from '../src/core/replay.ts';
 import { scanOrganization } from '../src/core/scan.ts';
 import { createWebServer, listen } from '../src/web.ts';
-import { atlas, EXAMPLE_COMMIT, open, TOOLS_COMMIT, tree } from './helpers.ts';
+import { atlas, EXAMPLE_COMMIT, open, repositoriesPage, SECRET_COMMIT, skillRoots, TOOLS_COMMIT, tree } from './helpers.ts';
 
 const organization = await atlas(['scan', 'https://github.com/JetBrains']);
 
@@ -40,11 +40,15 @@ test('scan prints the organization, then each repository with skills under its o
   assert.equal(
     organization.stdout,
     [
-      'JetBrains · 3 skills in 2 repositories',
+      'JetBrains · 4 skills in 3 repositories',
       '',
       'JetBrains/example · 1 skill',
       'commits — Write commit messages the way this repository does.',
       `  https://github.com/JetBrains/example/blob/${EXAMPLE_COMMIT}/${bold('.claude/skills/commits/SKILL.md')}`,
+      '',
+      'JetBrains/secret · 1 skill',
+      'deploy — Deploy it.',
+      `  https://github.com/JetBrains/secret/blob/${SECRET_COMMIT}/${bold('.agents/skills/deploy/SKILL.md')}`,
       '',
       'JetBrains/tools · 2 skills',
       'build',
@@ -56,58 +60,33 @@ test('scan prints the organization, then each repository with skills under its o
   );
 });
 
-test('a repository without skills is left out and never opened; one that cannot be opened is skipped with a warning', () => {
-  // JetBrains/docs has only docs/SKILL.md: had it been opened, the unrecorded request would fail the scan.
-  assert.doesNotMatch(organization.stdout, /JetBrains\/docs|JetBrains\/gone/);
+test('with a token, every repository is looked into through GraphQL: one without skills, or empty, is never opened, and gives no warning', () => {
+  // JetBrains/docs and JetBrains/empty have no answers but GraphQL's: had they been opened, the scan would have failed.
+  assert.doesNotMatch(organization.stdout, /JetBrains\/docs|JetBrains\/empty/);
+  // A skill's other files, a file in a skill root, a symbolic link: none of them is a skill.
+  assert.doesNotMatch(organization.stdout, /notes|linked|agent\/skills/);
+  // Each warning names its repository.
   assert.equal(
     organization.stderr,
-    [
-      'warning: JetBrains/gone: Not found on GitHub: https://api.github.com/repos/JetBrains/gone; skipped',
-      // Each warning names its repository.
-      'warning: JetBrains/tools: .github/skills/build/SKILL.md: malformed front matter: '
-        + 'Flow sequence in block collection must be sufficiently indented and end with a ] at line 3, column 23; using the directory name',
-    ].join('\n'),
+    'warning: JetBrains/hidden: GitHub\'s GraphQL API answered nothing for it (R6); skipped\n'
+      + 'warning: JetBrains/tools: .github/skills/build/SKILL.md: malformed front matter: '
+      + 'Flow sequence in block collection must be sufficiently indented and end with a ] at line 3, column 23; using the directory name',
   );
 });
 
-test('each repository\'s skills come from its commit, not from search: a skill search left out is there, a file it still names is not', () => {
-  // Search named JetBrains/tools' lint and retired skills; its tree has lint and build.
-  assert.match(organization.stdout, /JetBrains\/tools · 2 skills\nbuild\n/);
-  assert.doesNotMatch(organization.stdout + organization.stderr, /retired/);
-});
-
-test('search results repeated across pages, in place of others → a warning: a repository may be missing', async () => {
-  const hit = (index: number) => ({ path: `.claude/skills/s${index}/SKILL.md`, repository: { full_name: 'many/repo' } });
-  const scanned = await scanWith(
-    {
-      'https://api.github.com/users/many': { status: 200, body: { login: 'many', type: 'Organization' } },
-      'https://api.github.com/search/code?q=filename:SKILL.md+org:many&per_page=100&page=1': {
-        status: 200,
-        body: { total_count: 150, items: Array.from({ length: 100 }, (_, index) => hit(index)) },
-      },
-      // Page 2 repeats 10 results of page 1: 140 different ones of 150.
-      'https://api.github.com/search/code?q=filename:SKILL.md+org:many&per_page=100&page=2': {
-        status: 200,
-        body: { total_count: 150, items: Array.from({ length: 50 }, (_, index) => hit(index + 90)) },
-      },
-      'https://api.github.com/repos/many/repo': { status: 200, body: { full_name: 'many/repo', default_branch: 'main' } },
-      'https://api.github.com/repos/many/repo/commits/main': { status: 200, body: { sha: OCTO_COMMIT } },
-      [`https://api.github.com/repos/many/repo/git/trees/${OCTO_COMMIT}`]: tree({ 'README.md': null }),
-    },
-    'https://github.com/many',
-    'test',
-  );
-  assert.equal(scanned.code, 0, scanned.stderr);
-  assert.equal(scanned.stderr, 'warning: GitHub search returned only 140 of the 150 SKILL.md files it counted; some skills may be missing, scan again');
+test('a private repository: its SKILL.md is read with the token', () => {
+  // Without the token, GitHub answers 404 for it, as for any private file.
+  assert.match(organization.stdout, /JetBrains\/secret · 1 skill\ndeploy — Deploy it\./);
 });
 
 test('scan shows how far it is while it runs, and clears it before the result', async () => {
   const { progress } = organization;
   assert.equal(progress[0], 'Scanning https://github.com/JetBrains…');
-  // JetBrains/example, JetBrains/tools and JetBrains/gone to open: one line as each is done.
-  const counts = progress.slice(1, -1).map((line) => /^Scanning JetBrains: (\d) of 3 repositories, \d skills? so far…$/.exec(line)?.[1]);
-  assert.deepEqual(counts, ['0', '1', '2', '3']);
-  assert.equal(progress.at(-2), 'Scanning JetBrains: 3 of 3 repositories, 3 skills so far…');
+  // GraphQL counts JetBrains' 6 repositories; one line as each is done, looked into or scanned.
+  const counts = progress.slice(1, -1).map((line) => Number(/^Scanning JetBrains: (\d) of 6 repositories, \d skills? so far…$/.exec(line)?.[1]));
+  assert.equal(counts[0], 0);
+  assert.deepEqual(counts, [...counts].sort(), 'never going back');
+  assert.equal(progress.at(-2), 'Scanning JetBrains: 6 of 6 repositories, 4 skills so far…');
   assert.equal(progress.at(-1), '');
   // A repository: the first line, then cleared.
   assert.deepEqual((await atlas(['scan', 'https://github.com/JetBrains/example'])).progress, ['Scanning https://github.com/JetBrains/example…', '']);
@@ -134,7 +113,7 @@ const OCTO: Recording = {
     status: 200,
     body: [
       { full_name: 'octo/notes', default_branch: 'main', fork: false },
-      // A fork is left out, as code search leaves it out: it has no answers here.
+      // A fork is left out: it has no answers here.
       { full_name: 'octo/kotlin', default_branch: 'master', fork: true },
       { full_name: 'octo/empty', default_branch: 'main', fork: false },
       { full_name: 'octo/plain', default_branch: 'main', fork: false },
@@ -154,34 +133,30 @@ const OCTO: Recording = {
   [`https://api.github.com/repos/octo/plain/git/trees/${OCTO_COMMIT}`]: tree({ 'README.md': null }),
 };
 
-test('a user without a token: every repository but the forks, through its skill roots', async () => {
+test('a user without a token: every repository but the forks, through its skill roots; an empty one has no skills, and no warning', async () => {
   const scanned = await scanWith(OCTO, 'https://github.com/octo');
-  assert.equal(scanned.code, 0, scanned.stderr);
-  assert.equal(
-    scanned.stdout,
-    [
+  assert.deepEqual(scanned, {
+    code: 0,
+    stdout: [
       'octo · 1 skill in 1 repository',
       '',
       'octo/notes · 1 skill',
       'notes — Take notes.',
       `  https://github.com/octo/notes/blob/${OCTO_COMMIT}/${bold('.claude/skills/notes/SKILL.md')}`,
     ].join('\n'),
-  );
-  assert.equal(
-    scanned.stderr,
-    'warning: octo/empty: GitHub answered 409 for https://api.github.com/repos/octo/empty/commits/main: Git Repository is empty.; skipped',
-  );
+    stderr: '',
+  });
 });
 
-test('a user with a token: code search for user:<login>', async () => {
+test('a user with a token: GraphQL lists the repositories the user owns', async () => {
   const scanned = await scanWith(
     {
       ...OCTO,
-      'https://api.github.com/search/code?q=filename:SKILL.md+user:octo&per_page=100&page=1': {
+      [graphql({ login: 'octo', after: null })]: repositoriesPage(2, [['octo/notes', 'N1'], ['octo/plain', 'N2']]),
+      [graphql({ ids: ['N1', 'N2'] })]: {
         status: 200,
-        body: { total_count: 1, items: [{ path: '.claude/skills/notes/SKILL.md', repository: { full_name: 'octo/notes' } }] },
+        body: { data: { nodes: [skillRoots('octo/notes', OCTO_COMMIT, { '.claude/skills': { notes: ['SKILL.md'] } }), skillRoots('octo/plain', OCTO_COMMIT)] } },
       },
-      'https://api.github.com/repos/octo/notes': { status: 200, body: { full_name: 'octo/notes', default_branch: 'main' } },
     },
     'github.com/octo',
     'test',
@@ -189,6 +164,61 @@ test('a user with a token: code search for user:<login>', async () => {
   assert.equal(scanned.code, 0, scanned.stderr);
   assert.match(scanned.stdout, /^octo · 1 skill in 1 repository\n\nocto\/notes · 1 skill\nnotes — Take notes\./);
   assert.equal(scanned.stderr, '');
+});
+
+test('more than 10 repositories: 10 a GraphQL query, and over 100, a page more', async () => {
+  const names = Array.from({ length: 105 }, (_, index): [string, string] => [`many/r${index}`, `M${index}`]);
+  const recording: Recording = {
+    'https://api.github.com/users/many': { status: 200, body: { login: 'many', type: 'Organization' } },
+    [graphql({ login: 'many', after: null })]: repositoriesPage(105, names.slice(0, 100), 'next'),
+    [graphql({ login: 'many', after: 'next' })]: repositoriesPage(105, names.slice(100)),
+  };
+  for (let start = 0; start < names.length; start += 10) {
+    const batch = names.slice(start, start + 10);
+    recording[graphql({ ids: batch.map(([, id]) => id) })] = { status: 200, body: { data: { nodes: batch.map(([name]) => skillRoots(name, OCTO_COMMIT)) } } };
+  }
+  const result = await scanOrganization(await openGitHubOrganization('https://github.com/many', { fetch: replay(recording), token: 'test' }));
+  assert.deepEqual(result, { organization: { id: 'many', url: 'https://github.com/many' }, repositories: [], warnings: [] });
+});
+
+/** An organization of three repositories over GraphQL, with `answer` for the query into their skill roots. */
+function threeRepositories(answer: Recording[string] | Recording[string][]): Fetch {
+  const answers = Array.isArray(answer) ? [...answer] : [answer];
+  const recorded = replay({
+    'https://api.github.com/users/trio': { status: 200, body: { login: 'trio', type: 'Organization' } },
+    [graphql({ login: 'trio', after: null })]: repositoriesPage(3, [['trio/a', 'T1'], ['trio/b', 'T2'], ['trio/c', 'T3']]),
+  });
+  return async (url, init) => {
+    if (!init?.body?.includes('"ids"')) return recorded(url, init);
+    const { status, body } = answers.length > 1 ? answers.shift()! : answers[0];
+    return new Response(JSON.stringify(body), { status });
+  };
+}
+
+test('a GraphQL query that times out is asked once more; one that fails again skips its repositories, each with a warning', async () => {
+  const timeout = { status: 502, body: { message: 'Server Error' } };
+  const nodes = { status: 200, body: { data: { nodes: [skillRoots('trio/a', null), skillRoots('trio/b', null), skillRoots('trio/c', null)] } } };
+  assert.deepEqual((await scanOrganization(await openGitHubOrganization('https://github.com/trio', { fetch: threeRepositories([timeout, nodes]), token: 'test' }))).repositories, []);
+
+  const result = await scanOrganization(await openGitHubOrganization('https://github.com/trio', { fetch: threeRepositories(timeout), token: 'test' }));
+  assert.deepEqual(result.repositories.map(({ repository, skills, warnings }) => [repository.id, repository.url, skills, warnings]), ['a', 'b', 'c'].map((name) => [
+    `trio/${name}`,
+    `https://github.com/trio/${name}`,
+    [],
+    ['GitHub answered 502 for https://api.github.com/graphql: Server Error; skipped'],
+  ]));
+  assert.deepEqual(result.warnings, []);
+});
+
+test('GraphQL\'s rate limit stops the scan, with a clear message', async () => {
+  const fetch = threeRepositories({ status: 200, body: { data: null, errors: [{ type: 'RATE_LIMITED', message: 'API rate limit exceeded' }] } });
+  const lines: string[] = [];
+  const code = await run(['scan', 'https://github.com/trio'], {
+    open: (url) => openGitHubOrganization(url, { fetch, token: 'test' }),
+    print: (text) => lines.push(text),
+    error: (text) => lines.push(text),
+  });
+  assert.deepEqual({ code, lines }, { code: 1, lines: ['GitHub rate limit reached; try again in a minute'] });
 });
 
 test('an organization without skills: the heading, and nothing else', async () => {
@@ -200,28 +230,6 @@ test('an organization without skills: the heading, and nothing else', async () =
     'https://github.com/quiet',
   );
   assert.deepEqual(scanned, { code: 0, stdout: 'quiet · 0 skills in 0 repositories', stderr: '' });
-});
-
-test('more than 1000 SKILL.md files → a warning: GitHub search returns only the first 1000', async () => {
-  const items = Array.from({ length: 100 }, (_, index) => ({ path: `docs/${index}/SKILL.md`, repository: { full_name: 'big/docs' } }));
-  const scanned = await scanWith(
-    {
-      'https://api.github.com/users/big': { status: 200, body: { login: 'big', type: 'Organization' } },
-      'https://api.github.com/search/code?q=filename:SKILL.md+org:big&per_page=100&page=1': { status: 200, body: { total_count: 1500, items } },
-      'https://api.github.com/search/code?q=filename:SKILL.md+org:big&per_page=100&page=2': { status: 200, body: { total_count: 1500, items: [] } },
-    },
-    'https://github.com/big',
-    'test',
-  );
-  assert.equal(scanned.code, 0, scanned.stderr);
-  assert.equal(
-    scanned.stderr,
-    [
-      'warning: GitHub search found 1500 SKILL.md files and returns only the first 1000',
-      // Page 2 came back empty: fewer results than GitHub counted.
-      'warning: GitHub search returned only 100 of the 1000 SKILL.md files it counted; some skills may be missing, scan again',
-    ].join('\n'),
-  );
 });
 
 test('unknown organization → a clear message, exit code 1', async () => {
@@ -237,16 +245,29 @@ test('the rate limit in the middle of an organization stops the scan, with a mes
   assert.deepEqual(scanned, { code: 1, stdout: '', stderr: 'GitHub rate limit reached; set GITHUB_TOKEN' });
 });
 
-test('a SKILL.md that cannot be read skips its repository, with a warning; the scan goes on', async () => {
+test('a repository that cannot be opened is skipped with a warning under its own name; the scan goes on', async () => {
+  const result = await scanOrganization(
+    await openGitHubOrganization('https://github.com/octo', {
+      fetch: replay({ ...OCTO, 'https://api.github.com/repos/octo/plain/commits/main': { status: 500, body: { message: 'Server Error' } } }),
+    }),
+  );
+  assert.deepEqual(result.repositories.map(({ repository, skills, warnings }) => [repository.id, skills.length, warnings]), [
+    ['octo/notes', 1, []],
+    ['octo/plain', 0, ['GitHub answered 500 for https://api.github.com/repos/octo/plain/commits/main: Server Error; skipped']],
+  ]);
+});
+
+test('a SKILL.md that cannot be read is still listed, by its directory name, with a warning that says why', async () => {
   const result = await scanOrganization(
     await openGitHubOrganization('https://github.com/octo', {
       fetch: replay({ ...OCTO, [`https://raw.githubusercontent.com/octo/notes/${OCTO_COMMIT}/.claude/skills/notes/SKILL.md`]: { status: 500, body: '' } }),
     }),
   );
-  assert.deepEqual(result.repositories, []);
-  assert.deepEqual(result.warnings, [
-    'octo/empty: GitHub answered 409 for https://api.github.com/repos/octo/empty/commits/main: Git Repository is empty.; skipped',
-    `octo/notes: GitHub answered 500 for https://raw.githubusercontent.com/octo/notes/${OCTO_COMMIT}/.claude/skills/notes/SKILL.md; skipped`,
+  assert.deepEqual(result.repositories.map(({ repository, skills, warnings }) => [repository.id, skills.map(({ name, description, text }) => [name, description, text]), warnings]), [
+    ['octo/notes', [['notes', '', '']], [
+      `.claude/skills/notes/SKILL.md: cannot be read (GitHub answered 500 for https://raw.githubusercontent.com/octo/notes/${OCTO_COMMIT}/.claude/skills/notes/SKILL.md); `
+        + 'listed by its directory name, without a description',
+    ]],
   ]);
 });
 
@@ -254,20 +275,22 @@ const server = createWebServer(open);
 const address = await listen(server, 0);
 after(() => server.close());
 
-test('web: GET /api/scan for an organization → its repositories with skills, each skill as for a repository', async () => {
+test('web: GET /api/scan for an organization → its repositories with skills, each skill as for a repository, each with its warnings', async () => {
   const response = await fetch(new URL(`/api/scan?repo=${encodeURIComponent('https://github.com/JetBrains')}`, address));
   assert.equal(response.status, 200);
   const body = JSON.parse(await response.text());
   assert.deepEqual(body.organization, { id: 'JetBrains', url: 'https://github.com/JetBrains' });
   assert.deepEqual(
     body.repositories.map(({ repository, skills }: { repository: { id: string }; skills: { name: string }[] }) => [repository.id, skills.map((skill) => skill.name)]),
-    [['JetBrains/example', ['commits']], ['JetBrains/tools', ['build', 'lint']]],
+    [['JetBrains/example', ['commits']], ['JetBrains/hidden', []], ['JetBrains/secret', ['deploy']], ['JetBrains/tools', ['build', 'lint']]],
   );
-  const lint = body.repositories[1].skills[1];
+  const lint = body.repositories[3].skills[1];
   assert.deepEqual(lint.link, { base: `https://github.com/JetBrains/tools/blob/${TOOLS_COMMIT}/`, path: '.agents/skills/lint/SKILL.md' });
   assert.match(lint.html, /^<table class="front-matter">/);
-  assert.equal(body.warnings.length, 2);
-  assert.match(body.warnings[0], /^JetBrains\/gone: /);
+  // A repository's warnings are its own; the organization has none.
+  assert.deepEqual(body.repositories.map(({ warnings }: { warnings: string[] }) => warnings.length), [0, 1, 0, 1]);
+  assert.match(body.repositories[3].warnings[0], /^\.github\/skills\/build\/SKILL\.md: malformed front matter: /);
+  assert.deepEqual(body.warnings, []);
 });
 
 test('web: GET /api/scan?repo=…&progress → a JSON line as each repository is done, then the result', async () => {
@@ -275,8 +298,8 @@ test('web: GET /api/scan?repo=…&progress → a JSON line as each repository is
   assert.equal(response.status, 200);
   assert.match(response.headers.get('content-type') ?? '', /^application\/x-ndjson/);
   const lines = (await response.text()).trimEnd().split('\n').map((line) => JSON.parse(line));
-  assert.deepEqual(lines.slice(0, -1).map(({ progress }) => [progress.done, progress.total]), [[0, 3], [1, 3], [2, 3], [3, 3]]);
-  assert.equal(lines.at(-2).progress.skills, 3);
+  assert.deepEqual(lines[0].progress, { done: 0, total: 6, skills: 0 });
+  assert.deepEqual(lines.at(-2).progress, { done: 6, total: 6, skills: 4 });
   const plain = await (await fetch(new URL(`/api/scan?repo=${encodeURIComponent('https://github.com/JetBrains')}`, address))).json();
   assert.deepEqual(lines.at(-1), { result: plain });
 
@@ -288,7 +311,7 @@ test('web: GET /api/scan?repo=…&progress → a JSON line as each repository is
 test('web: the page shows each repository as a collapsed group, with its heading; Expand all and Collapse all', async () => {
   const page = await (await fetch(address)).text();
   assert.match(page, /if \(body\.organization\) return renderOrganization\(body\);/);
-  assert.match(page, /element\('details', \{\},\n\s*element\('summary', \{\}, `\$\{repository\.id\} · \$\{count\(skills\.length, 'skill', 'skills'\)\}`\),/);
+  assert.match(page, /element\('details', \{\},\n\s*element\('summary', \{\}, warnings\.length \? '❗ ' : '', `\$\{repository\.id\} · `, element\('span', \{ className: 'count' \}\)\),/);
   assert.match(page, /<button id="toggle" type="button"><\/button>/);
   assert.match(page, /'Expand all' : 'Collapse all'/);
   // The heading stays in sight while its skills scroll by.

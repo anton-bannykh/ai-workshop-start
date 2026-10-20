@@ -14,7 +14,8 @@ build-tools-bump-gradle-api — Bumps the Gradle API version that Kotlin Gradle 
 ```
 
 `./skill-atlas scan https://github.com/JetBrains` scans every repository of the organization, each
-under its own heading, showing how far it is as it goes (set `GITHUB_TOKEN`: it is one code search then).
+under its own heading, showing how far it is as it goes (set `GITHUB_TOKEN`: it lists them through GraphQL then,
+private ones too).
 
 `./skill-atlas serve` opens the same scan as a local web view at http://127.0.0.1:4173/: a field for
 a repository link, its skills, and each skill's SKILL.md.

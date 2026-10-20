@@ -58,7 +58,11 @@ async function scanned(open: (input: string) => Promise<Source | OrganizationSou
   const source = await open(input);
   if ('organization' in source) {
     const { organization, repositories, warnings } = await scanOrganization(source, progress);
-    return { organization, repositories: repositories.map(({ repository, skills }) => withPages(repository, skills)), warnings };
+    return {
+      organization,
+      repositories: repositories.map(({ repository, skills, warnings }) => ({ ...withPages(repository, skills), warnings })),
+      warnings,
+    };
   }
   const { repository, skills, warnings } = await scan(source);
   return { ...withPages(repository, skills), warnings };

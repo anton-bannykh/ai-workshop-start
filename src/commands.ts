@@ -2,7 +2,7 @@
 // terminal: everything that differs between them comes in through the context.
 import { AtlasError } from './core/errors.ts';
 import { skillLinkParts, type Repository, type Skill } from './core/model.ts';
-import { scan, scanOrganization, type OrganizationScanResult, type OrganizationSource, type Source } from './core/scan.ts';
+import { scan, scanOrganization, type OrganizationScanResult, type OrganizationSource, type ScanResult, type Source } from './core/scan.ts';
 
 export type Context = {
   /** Opens what the user asked to scan: a repository, or an organization's repositories. */
@@ -55,7 +55,7 @@ async function scanCommand(args: string[], context: Context) {
   }
   if ('organization' in result) printOrganization(result, context);
   else printRepository(result.repository, result.skills, context);
-  for (const warning of result.warnings) context.error(`warning: ${warning}`);
+  for (const warning of warnings(result)) context.error(`warning: ${warning}`);
 }
 
 async function serveCommand(args: string[], context: Context) {
@@ -69,13 +69,19 @@ async function serveCommand(args: string[], context: Context) {
 
 /** `<owner> · N skills in M repositories`, then each repository with skills, after a blank line. */
 function printOrganization(result: OrganizationScanResult, context: Context) {
-  const total = result.repositories.reduce((sum, { skills }) => sum + skills.length, 0);
-  const repositories = result.repositories.length;
-  context.print(`${result.organization.id} · ${count(total)} in ${repositories} ${repositories === 1 ? 'repository' : 'repositories'}`);
-  for (const { repository, skills } of result.repositories) {
+  const withSkills = result.repositories.filter(({ skills }) => skills.length > 0);
+  const total = withSkills.reduce((sum, { skills }) => sum + skills.length, 0);
+  context.print(`${result.organization.id} · ${count(total)} in ${withSkills.length} ${withSkills.length === 1 ? 'repository' : 'repositories'}`);
+  for (const { repository, skills } of withSkills) {
     context.print('');
     printRepository(repository, skills, context);
   }
+}
+
+/** The organization's own warnings, then each repository's, by repository, each naming its repository. */
+function warnings(result: OrganizationScanResult | ScanResult): string[] {
+  if (!('organization' in result)) return result.warnings;
+  return [...result.warnings, ...result.repositories.flatMap(({ repository, warnings }) => warnings.map((warning) => `${repository.id}: ${warning}`))];
 }
 
 /** `<owner>/<repo> · N skills`, then each skill's name, first sentence and link. */

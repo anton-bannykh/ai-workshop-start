@@ -11,20 +11,23 @@ Skill: id = `repo:path`, name, description, commit, text (the SKILL.md)
 - **GitHub API**, no clone; *under 5 s* for intellij-community
 - The name: front matter, else the directory
 - The link pins the *scanned commit*
+- Only the skill roots, *at the scanned commit*; without `GITHUB_TOKEN`, the whole tree when it fits in one answer
 - Malformed front matter → a *warning*, the scan goes on
+- A SKILL.md that cannot be read → still listed, by its *directory name*, with a warning that says why
+- A private repository: read with `GITHUB_TOKEN`, its SKILL.md files too
 - Unreachable repository → a clear message, exit code 1
 ## An organization
 `https://github.com/<owner>` (or `/orgs/<owner>`): every repository of the owner, at once
 - Each repository on its own: its id, its skills, its commit; sorted by **id**
-- Only the repositories *with skills*; forks left out
-- With `GITHUB_TOKEN`: one code search for the owner, for *which* repositories; repositories with no skill are not opened
-- Without it: every repository; only a small owner fits in the rate limit
-- A repository's skills: from its skill roots *at its commit*, never from search's paths
-  (owner-wide, search can leave a file out, or name one the commit no longer has)
-- More than 1000 search results → a *warning*: GitHub returns the first 1000
-- Search returning fewer results than it counted (pages repeat some) → a *warning*: some skills may be missing
-- A repository that cannot be read → a *warning*, the scan goes on
-- 8 repositories at a time; *progress* as each one is done: how many of how many, the skills so far
+- Only the repositories *with skills* (the web view: or with warnings); forks left out
+- With `GITHUB_TOKEN`: **GraphQL** lists *every* repository, 100 a page, and looks into each one's skill roots
+  at its commit, 10 repositories a query, 8 queries at a time; a repository with no skill is not opened
+- *No code search*: it returns 1000 results at most, and owner-wide it leaves files out and names ones gone
+- Without it: every repository opened; only a small owner fits in the rate limit
+- An empty repository: no skills, *no warning*
+- A repository that cannot be read → a *warning*, its own; the scan goes on
+- A GraphQL query that times out → asked *once more*; failing again → a warning for each of its repositories
+- 8 repositories at a time; *progress* as each one is done: how many of all the owner's, the skills so far
 - Unknown owner, unreachable GitHub, the rate limit → a clear message, exit code 1
 ## What is a project skill?
 `<root>/<name>/SKILL.md`, `<root>` is one of:

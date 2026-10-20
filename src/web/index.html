@@ -22,7 +22,9 @@
   #no-match { margin: 0; }
   #summary { font-weight: 600; }
   #messages:empty { display: none; }
-  #messages p { margin: 4px 0; }
+  #messages p, #skills .repository .warning { margin: 4px 0; }
+  #messages summary { cursor: pointer; }
+  #skills .repository .warning { padding: 0 16px 0 32px; font-size: 13px; }
   .warning { color: var(--warn); }
   .error { color: var(--error); }
   #skills, #skills .repository ul { list-style: none; margin: 0; padding: 0; }
@@ -123,16 +125,31 @@
 
   /** Whether the filter keeps a skill: its name contains the filter, ignoring case and the spaces around it. */
   const matches = (name, filter) => name.toLowerCase().includes(filter.trim().toLowerCase());
-  /** Filters the listed skills by name, in the page: no new scan. A repository's group is hidden when it keeps none. */
+  const filtering = () => $('filter').value.trim() !== '';
+  /** `N skills`; while filtering, how many of them it keeps: `2 of N skills`. */
+  const kept = (shown, all, one, many) => (filtering() ? `${shown} of ${count(all, one, many)}` : count(all, one, many));
+  /** The summary for the skills the filter keeps, and how many each repository keeps; null while there is no result. */
+  let summarize = null;
+
+  /**
+   * Filters the listed skills by name, in the page: no new scan. While filtering, a repository's group
+   * is hidden when it keeps none; the counts are of the skills it keeps.
+   */
   function applyFilter() {
     let shown = 0;
     for (const item of $('skills').querySelectorAll('.skill')) {
       item.hidden = !matches(item.dataset.name, $('filter').value);
       if (!item.hidden) shown++;
     }
+    const repositories = [];
     for (const group of $('skills').querySelectorAll('.repository')) {
-      group.hidden = [...group.querySelectorAll('.skill')].every((item) => item.hidden);
+      const items = [...group.querySelectorAll('.skill')];
+      const keeps = items.filter((item) => !item.hidden).length;
+      group.hidden = filtering() && keeps === 0;
+      group.querySelectorAll('.count')[0].textContent = kept(keeps, items.length, 'skill', 'skills');
+      if (items.length > 0) repositories.push(keeps);
     }
+    if (summarize) $('summary').textContent = summarize(shown, repositories);
     $('no-match').hidden = shown > 0 || $('skills').children.length === 0;
   }
   $('filter').addEventListener('input', applyFilter);
@@ -149,12 +166,17 @@
     return item;
   }
 
+  const warning = (text) => element('p', { className: 'warning' }, text);
+  /** Warnings out of the way, in a group of their own, collapsed: `❗ N warnings`. */
+  const warningsGroup = (warnings) => element('details', { className: 'warnings' },
+    element('summary', { className: 'warning' }, `❗ ${count(warnings.length, 'warning', 'warnings')}`), ...warnings.map(warning));
+
   function render(body) {
-    $('messages').replaceChildren(...body.warnings.map((warning) => element('p', { className: 'warning' }, `warning: ${warning}`)));
+    $('messages').replaceChildren(...(body.warnings.length ? [warningsGroup(body.warnings)] : []));
     $('toggle').replaceChildren();
     if (body.organization) return renderOrganization(body);
     const { repository, skills } = body;
-    $('summary').textContent = `${repository.id} · ${count(skills.length, 'skill', 'skills')}`;
+    summarize = (shown) => `${repository.id} · ${kept(shown, skills.length, 'skill', 'skills')}`;
     $('skills').replaceChildren(...skills.map(skillItem));
     applyFilter();
     $('skill').replaceChildren(element('p', { className: 'empty' }, skills.length ? 'Choose a skill to see its SKILL.md.' : 'No skills here.'));
@@ -162,13 +184,20 @@
     if (first !== -1) show(skills[first], $('skills').children[first]);
   }
 
-  /** An organization: each repository's skills under its own heading, collapsed until it is opened. */
+  /**
+   * An organization: each repository's skills under its own heading, collapsed until it is opened. A
+   * repository with warnings has ❗ in its heading, and its warnings above its skills.
+   */
   function renderOrganization({ organization, repositories }) {
     const total = repositories.reduce((sum, { skills }) => sum + skills.length, 0);
-    $('summary').textContent = `${organization.id} · ${count(total, 'skill', 'skills')} in ${count(repositories.length, 'repository', 'repositories')}`;
-    $('skills').replaceChildren(...repositories.map(({ repository, skills }) => element('li', { className: 'repository' },
+    const withSkills = repositories.filter(({ skills }) => skills.length > 0).length;
+    summarize = (shown, keeps) => filtering()
+      ? `${organization.id} · ${shown} of ${count(total, 'skill', 'skills')} in ${keeps.filter(Boolean).length} of ${count(withSkills, 'repository', 'repositories')}`
+      : `${organization.id} · ${count(total, 'skill', 'skills')} in ${count(withSkills, 'repository', 'repositories')}`;
+    $('skills').replaceChildren(...repositories.map(({ repository, skills, warnings }) => element('li', { className: 'repository' },
       element('details', {},
-        element('summary', {}, `${repository.id} · ${count(skills.length, 'skill', 'skills')}`),
+        element('summary', {}, warnings.length ? '❗ ' : '', `${repository.id} · `, element('span', { className: 'count' })),
+        ...warnings.map(warning),
         element('ul', {}, ...skills.map(skillItem))))));
     applyFilter();
     const groups = [...$('skills').querySelectorAll('details')];
@@ -177,11 +206,12 @@
     $('toggle').onclick = () => { const open = groups.some((group) => !group.open); for (const group of groups) group.open = open; label(); };
     if (groups.length) label();
     $('skill').replaceChildren(element('p', { className: 'empty' },
-      repositories.length ? 'Open a repository, then choose a skill to see its SKILL.md.' : 'No skills here.'));
+      withSkills ? 'Open a repository, then choose a skill to see its SKILL.md.' : 'No skills here.'));
   }
 
   async function scan(repo) {
     $('scan').disabled = true;
+    summarize = null;
     $('summary').textContent = 'Scanning…';
     $('toggle').replaceChildren();
     $('messages').replaceChildren();
@@ -206,6 +236,7 @@
         }
       }
     } catch (error) {
+      summarize = null;
       $('summary').textContent = '';
       $('messages').replaceChildren(element('p', { className: 'error' }, error.message));
       $('skill').replaceChildren();

@@ -158,6 +158,7 @@ test('a filter on the top right: as you type, only the skills whose name contain
 
   type('co');
   assert.deepEqual(listed().shown, ['code-style', 'commits']);
+  assert.equal($('summary').textContent, 'fixture · 2 of 3 skills');
   type('COMMITS');
   assert.deepEqual(listed().shown, ['commits']);
   type('  check ');
@@ -169,7 +170,7 @@ test('a filter on the top right: as you type, only the skills whose name contain
   type('');
   assert.deepEqual(listed().shown, all);
   assert.equal($('no-match').hidden, true);
-  // In the page: filtering asks nothing of the API, the summary still counts every skill.
+  // In the page: filtering asks nothing of the API; the summary counts every skill once the filter is empty.
   assert.equal($('summary').textContent, `fixture · 3 skills`);
   assert.equal(scans(), 1);
 
@@ -180,26 +181,62 @@ test('a filter on the top right: as you type, only the skills whose name contain
   assert.equal(chosen(), 'release-checklist');
 });
 
-test('the filter on an organization: only the skills it keeps, and only the repositories with one of them', async () => {
+test('the filter on an organization: only the skills it keeps, only the repositories with one of them, and their counts', async () => {
   const { $, type } = await openPage('https://github.com/JetBrains');
   const groups = $('skills').children as FakeElement[];
   /** Each repository shown, with the names of its skills shown; groups stay as they were opened. */
   const shown = () => groups.filter((group) => !group.hidden).map((group) =>
     group.querySelectorAll('.skill').filter((item) => !item.hidden).map((item) => item.dataset.name));
-  assert.deepEqual(shown(), [['commits'], ['build', 'lint']]);
+  /** Each repository's count, in its heading. */
+  const counts = () => groups.map((group) => group.querySelectorAll('.count')[0].textContent);
+  // JetBrains/hidden has only its warning: shown, with no skills, until a filter is typed.
+  assert.deepEqual(shown(), [['commits'], [], ['deploy'], ['build', 'lint']]);
+  assert.deepEqual(counts(), ['1 skill', '0 skills', '1 skill', '2 skills']);
   assert.equal($('no-match').hidden, true);
 
   type('LI');
   assert.deepEqual(shown(), [['lint']]);
-  assert.deepEqual(groups.map((group) => group.querySelectorAll('details')[0]?.open), [false, false]);
+  assert.deepEqual(groups.map((group) => group.querySelectorAll('details')[0]?.open), [false, false, false, false]);
+  // The counts are of the skills the filter keeps.
+  assert.equal(counts()[3], '1 of 2 skills');
+  assert.equal($('summary').textContent, 'JetBrains · 1 of 4 skills in 1 of 3 repositories');
   type('i');
   assert.deepEqual(shown(), [['commits'], ['build', 'lint']]);
+  assert.deepEqual(counts(), ['1 of 1 skill', '0 of 0 skills', '0 of 1 skill', '2 of 2 skills']);
   type('nothing');
   assert.deepEqual(shown(), []);
   assert.equal($('no-match').hidden, false);
+  assert.equal($('summary').textContent, 'JetBrains · 0 of 4 skills in 0 of 3 repositories');
   type('');
-  assert.deepEqual(shown(), [['commits'], ['build', 'lint']]);
-  assert.equal($('summary').textContent, 'JetBrains · 3 skills in 2 repositories');
+  assert.deepEqual(shown(), [['commits'], [], ['deploy'], ['build', 'lint']]);
+  assert.deepEqual(counts(), ['1 skill', '0 skills', '1 skill', '2 skills']);
+  assert.equal($('summary').textContent, 'JetBrains · 4 skills in 3 repositories');
+});
+
+/** The text in an element and all it holds. */
+const text = (node: FakeElement | string): string => (typeof node === 'string' ? node : node.textContent + node.children.map(text).join(''));
+
+test('a repository\'s warnings are under its own heading, which has ❗; none are listed at the top', async () => {
+  const { $ } = await openPage('https://github.com/JetBrains');
+  const groups = $('skills').children as FakeElement[];
+  const headings = groups.map((group) => text(group.querySelectorAll('summary')[0]));
+  assert.deepEqual(headings, ['JetBrains/example · 1 skill', '❗ JetBrains/hidden · 0 skills', 'JetBrains/secret · 1 skill', '❗ JetBrains/tools · 2 skills']);
+  const warnings = groups.map((group) => group.querySelectorAll('.warning').map(text));
+  assert.deepEqual(warnings.slice(0, 3), [[], ['GitHub\'s GraphQL API answered nothing for it (R6); skipped'], []]);
+  assert.match(warnings[3].join('\n'), /^\.github\/skills\/build\/SKILL\.md: malformed front matter: [^\n]*; using the directory name$/);
+  // Inside the group: collapsed with it, above its skills.
+  const details = groups[3].querySelectorAll('details')[0];
+  assert.deepEqual(details.children.map((child) => (child as FakeElement).tagName), ['SUMMARY', 'P', 'UL']);
+  assert.deepEqual($('messages').children, []);
+});
+
+test('a repository\'s own warnings, out of the way: in a collapsed group, ❗ and how many', async () => {
+  const { $ } = await openPage(FIXTURE);
+  const [group] = $('messages').children as FakeElement[];
+  assert.equal(group.tagName, 'DETAILS');
+  assert.equal(group.open, false);
+  assert.equal(text(group.children[0]), '❗ 1 warning');
+  assert.match(text(group.children[1]), /^\.agents\/skills\/release-checklist\/SKILL\.md: malformed front matter: /);
 });
 
 test('while an organization is scanned, the page shows how far it is', async () => {
@@ -209,8 +246,8 @@ test('while an organization is scanned, the page shows how far it is', async () 
   Object.defineProperty($('summary'), 'textContent', { get: () => text, set: (value: string) => { text = value; summaries.push(value); } });
   await rescan();
   assert.equal(summaries[0], 'Scanning…');
-  assert.match(summaries[1], /^Scanning… 0 of 3 repositories, 0 skills so far$/);
-  assert.deepEqual(summaries.slice(-2), ['Scanning… 3 of 3 repositories, 3 skills so far', 'JetBrains · 3 skills in 2 repositories']);
+  assert.match(summaries[1], /^Scanning… 0 of 6 repositories, 0 skills so far$/);
+  assert.deepEqual(summaries.slice(-2), ['Scanning… 6 of 6 repositories, 4 skills so far', 'JetBrains · 4 skills in 3 repositories']);
 });
 
 test('a GitHub repository: its skills with name, description, pinned link and their SKILL.md', async () => {

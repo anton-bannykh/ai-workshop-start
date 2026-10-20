@@ -61,10 +61,7 @@ function parse(id: string, stdout: string): Entry[] {
   return entries;
 }
 
-/**
- * A scan; once more after a minute if GitHub's rate limit stopped it. Code search allows 10 requests a
- * minute and one run takes 3, so only runs close together reach it.
- */
+/** A scan; once more after a minute if GitHub's rate limit stopped it. */
 async function scanOnce(id: string) {
   const result = await scan(id);
   if (!/rate limit/.test(result.stderr)) return result;
@@ -127,4 +124,24 @@ test('JetBrains/intellij-community: under 5 s', { skip, timeout: 120_000 }, asyn
   // Timed on a fresh scan: one that waited for the rate limit times only its retry.
   const { seconds } = await check('JetBrains/intellij-community');
   assert.ok(seconds < 5, `${seconds.toFixed(1)} s`);
+});
+
+test('JetBrains, the organization: every repository with skills, each as when it is scanned on its own', { skip, timeout: 300_000 }, async () => {
+  const result = await scanOnce('JetBrains');
+  assert.equal(result.code, 0, result.stderr);
+  // Only a SKILL.md of the repositories' own may warn: none about how GitHub was asked.
+  for (const line of result.stderr.split('\n').filter(Boolean)) {
+    assert.match(line, /^warning: JetBrains\/[\w.-]+: (?:\.agents|\.claude|\.github|agent)\/skills\/[^/]+\/SKILL\.md: /, line);
+  }
+  const [header, ...groups] = result.stdout.trimEnd().split('\n\n');
+  const summary = /^JetBrains · (\d+) skills in (\d+) repositories$/.exec(header);
+  assert.ok(summary, header);
+  assert.equal(groups.length, Number(summary[2]));
+  const ids = groups.map((group) => group.split('\n')[0].split(' · ')[0]);
+  assert.deepEqual(ids, [...ids].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)), 'sorted by id');
+  // Each repository's skills are the ones its own scan finds.
+  const kotlin = groups.find((group) => group.startsWith('JetBrains/kotlin · '));
+  assert.ok(kotlin, 'JetBrains/kotlin is listed');
+  const own = await scanOnce('JetBrains/kotlin');
+  assert.deepEqual(parse('JetBrains/kotlin', kotlin).map((entry) => entry.path), parse('JetBrains/kotlin', own.stdout).map((entry) => entry.path));
 });

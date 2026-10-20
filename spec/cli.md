@@ -23,5 +23,5 @@ JetBrains/MPS · 42 skills
 …
 ```
 - Each repository as above, after a *blank line*: easy to see where one ends
-- While it runs: `Scanning JetBrains: 5 of 16 repositories, 57 skills so far…`
+- While it runs: `Scanning JetBrains: 5 of 688 repositories, 57 skills so far…`; of all the owner's repositories
 - Each repository's warning names its repository; by repository, sorted by id
