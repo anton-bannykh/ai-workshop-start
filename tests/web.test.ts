@@ -99,6 +99,9 @@ test('the page shows the SKILL.md formatted, with a Raw tab for the file as it i
   assert.match(page, /element\('div', \{ id: 'formatted', className: 'markdown', innerHTML: skill\.html \}\)/);
   assert.match(page, /element\('pre', \{ id: 'text' \}, skill\.text\)/);
   assert.match(page, /tab\('formatted', 'Formatted'\), tab\('raw', 'Raw'\)/);
+  // The list of skills is styled on its own: a SKILL.md's lists keep their bullets.
+  const style = /<style>([\s\S]*?)<\/style>/.exec(page)?.[1] ?? '';
+  assert.doesNotMatch(style, /^\s*(?:ul|ol|li)\b/m);
 });
 
 const FILE = `https://github.com/JetBrains/example/blob/${EXAMPLE_COMMIT}/.claude/skills/commits/SKILL.md`;
