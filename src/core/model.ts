@@ -1,3 +1,11 @@
+/** A scanned organization, or a user: the owner of repositories on GitHub. */
+export type Organization = {
+  /** The login, for example `JetBrains`. */
+  id: string;
+  /** `https://github.com/<owner>`. */
+  url: string;
+};
+
 /** A scanned repository. The hierarchy is organization → repository → skill. */
 export type Repository = {
   /** `owner/name`, for example `JetBrains/kotlin`; a local directory's name. */
@@ -24,6 +32,8 @@ export type Skill = {
   copies: string[];
   /** The SKILL.md itself, as it is in the file. */
   text: string;
+  /** What went wrong reading this skill: its own, not its repository's. */
+  warnings: string[];
 };
 
 /**
@@ -41,8 +51,16 @@ export function skillLinkParts(repository: Repository, skill: Skill): { base: st
   return { base: skill.commit ? `${repository.url}/blob/${skill.commit}/` : `${repository.url}/`, path };
 }
 
+/** By id, in the same order everywhere, whatever the locale. */
+export function sortRepositories<T extends { repository: Repository }>(repositories: T[]): T[] {
+  return [...repositories].sort((a, b) => compare(a.repository.id, b.repository.id));
+}
+
 /** By name, then by path: the same order everywhere, whatever the locale. */
 export function sortSkills(skills: Skill[]): Skill[] {
-  const compare = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
   return [...skills].sort((a, b) => compare(a.name, b.name) || compare(a.path, b.path));
+}
+
+function compare(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
 }
