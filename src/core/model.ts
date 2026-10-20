@@ -32,6 +32,11 @@ export type Skill = {
   copies: string[];
   /** The SKILL.md itself, as it is in the file. */
   text: string;
+  /**
+   * When the skill was last modified, as an ISO date: on GitHub, the last commit that changed its directory,
+   * up to the scanned commit; in a local directory, its newest file. Empty when it is not known.
+   */
+  modified: string;
   /** What went wrong reading this skill: its own, not its repository's. */
   warnings: string[];
 };

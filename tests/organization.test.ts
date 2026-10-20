@@ -8,7 +8,7 @@ import { openGitHubOrganization, parseGitHubOwnerUrl, parseGitHubUrl, type Fetch
 import { graphql, replay, type Recording } from '../src/core/replay.ts';
 import { scanOrganization } from '../src/core/scan.ts';
 import { createWebServer, listen } from '../src/web.ts';
-import { atlas, EXAMPLE_COMMIT, open, repositoriesPage, SECRET_COMMIT, skillRoots, TOOLS_COMMIT, tree } from './helpers.ts';
+import { atlas, EXAMPLE_COMMIT, lastModified, open, repositoriesPage, SECRET_COMMIT, skillRoots, TOOLS_COMMIT, tree } from './helpers.ts';
 
 const organization = await atlas(['scan', 'https://github.com/JetBrains']);
 
@@ -162,6 +162,7 @@ test('a user with a token: GraphQL lists the repositories the user owns', async 
         status: 200,
         body: { data: { nodes: [skillRoots('octo/notes', OCTO_COMMIT, { '.claude/skills': { notes: ['SKILL.md'] } }), skillRoots('octo/plain', OCTO_COMMIT)] } },
       },
+      ...lastModified('octo/notes', OCTO_COMMIT, { '.claude/skills/notes': '2026-04-01T12:00:00Z' }),
     },
     'github.com/octo',
     'test',
@@ -198,6 +199,7 @@ test('the repositories to scan are the ones GitHub lists to the token: more coun
       body: { data: { nodes: [skillRoots('big/a', OCTO_COMMIT, { '.claude/skills': { notes: ['SKILL.md'] } }), skillRoots('big/b', OCTO_COMMIT)] } },
     },
     [`https://raw.githubusercontent.com/big/a/${OCTO_COMMIT}/.claude/skills/notes/SKILL.md`]: { status: 200, body: '---\nname: notes\ndescription: Take notes.\n---\n' },
+    ...lastModified('big/a', OCTO_COMMIT, { '.claude/skills/notes': '2026-04-01T12:00:00Z' }),
   };
   const progress: { done: number; total: number }[] = [];
   const result = await scanOrganization(

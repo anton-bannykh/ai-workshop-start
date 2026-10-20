@@ -13,6 +13,11 @@ export type Source = {
   warnings: string[];
   /** The file's bytes, or undefined if it is not there. */
   read(path: string): Promise<Uint8Array | undefined>;
+  /**
+   * When each directory was last modified, as an ISO date, by directory; one it cannot tell is left out.
+   * Missing when the source cannot tell at all: on GitHub, without a token.
+   */
+  modified?(directories: string[]): Promise<Map<string, string>>;
 };
 
 /** `warnings` are the repository's own; each skill has its own. */
@@ -58,9 +63,34 @@ export type OrganizationScanResult = {
 /** fetch → find → parse. Nothing is stored: the result is all there is. */
 export async function scan(source: Source): Promise<ScanResult> {
   const files = findSkills(source.paths);
-  // The files are read at the same time: on GitHub, each one is a request.
-  const skills = await Promise.all(files.map((file) => readSkill(source, file)));
-  return { repository: source.repository, skills: sortSkills(skills), warnings: source.warnings };
+  const warnings = [...source.warnings];
+  // The files are read at the same time, and the dates asked for: on GitHub, each one is a request.
+  const [skills, modified] = await Promise.all([
+    Promise.all(files.map((file) => readSkill(source, file))),
+    lastModified(source, files, warnings),
+  ]);
+  for (const skill of skills) skill.modified = modified.get(directoryOf(skill.path)) ?? '';
+  return { repository: source.repository, skills: sortSkills(skills), warnings };
+}
+
+/**
+ * When each skill's directory was last modified. Not knowing it costs the dates, not the scan: the
+ * repository gets a warning that says why.
+ */
+async function lastModified(source: Source, files: SkillFile[], warnings: string[]): Promise<Map<string, string>> {
+  if (!source.modified || files.length === 0) return new Map();
+  try {
+    return await source.modified(files.map((file) => directoryOf(file.path)));
+  } catch (error) {
+    if (!(error instanceof AtlasError) || error instanceof Unavailable) throw error;
+    warnings.push(`cannot tell when its skills were last modified: ${error.message}`);
+    return new Map();
+  }
+}
+
+/** `<root>/<name>`, the skill's directory. */
+function directoryOf(path: string): string {
+  return path.slice(0, path.lastIndexOf('/'));
 }
 
 /** How far an organization's scan is: repositories scanned of all, and the skills found so far. */
@@ -136,6 +166,7 @@ async function readSkill(source: Source, file: SkillFile): Promise<Skill> {
     commit: source.repository.commit,
     copies: file.copies,
     text,
+    modified: '',
     warnings: parsed.warning ? [parsed.warning] : [],
   };
 }

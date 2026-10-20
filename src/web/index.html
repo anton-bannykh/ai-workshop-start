@@ -38,7 +38,11 @@
   #toggle { display: block; margin: 0 16px 12px; padding: 4px 12px; background: transparent; color: inherit; border: 1px solid var(--line); }
   #toggle:empty { display: none; }
   .name { font-weight: 600; }
+  #skills .name { display: flex; gap: 8px; }
+  #skills .name .modified { margin-left: auto; }
   .description, .copies { color: var(--muted); font-size: 13px; }
+  /* Out of the way: there, but in grey. */
+  .modified { color: var(--muted); font-size: 12px; font-weight: normal; }
   .link { display: block; font-size: 12px; word-break: break-all; color: var(--accent); }
   #skill { min-height: 0; padding: 16px 24px; overflow: auto; }
   #skill h2 { margin: 0 0 8px; font-size: 18px; }
@@ -99,6 +103,17 @@
   /** The link with its path part in bold, as the CLI prints it. */
   const link = (skill) => element('a', { className: 'link', href: skill.link.base + skill.link.path, target: '_blank', rel: 'noopener' },
     skill.link.base, element('b', {}, decodeURIComponent(skill.link.path)));
+  /** DD-MM-YY, in the local time; '' when it is not known. */
+  const day = (date) => {
+    if (!date) return '';
+    const time = new Date(date);
+    const two = (n) => String(n).padStart(2, '0');
+    return `${two(time.getDate())}-${two(time.getMonth() + 1)}-${two(time.getFullYear() % 100)}`;
+  };
+  /** When the skill was last modified, in grey; nothing when it is not known. */
+  const modified = (skill, label) => skill.modified
+    ? element('span', { className: 'modified', title: `Last modified ${skill.modified}` }, `${label}${day(skill.modified)}`)
+    : '';
 
   /** Formatted Markdown by default; the raw file on its own tab. */
   let view = 'formatted';
@@ -120,7 +135,8 @@
       for (const button of tabs.children) button.setAttribute('aria-selected', String(button.id === `tab-${view}`));
     };
     select();
-    $('skill').replaceChildren(element('h2', {}, skill.name), link(skill), ...skill.warnings.map(warning), tabs, formatted, raw);
+    const date = modified(skill, 'Last modified ');
+    $('skill').replaceChildren(element('h2', {}, skill.name), link(skill), date && element('div', {}, date), ...skill.warnings.map(warning), tabs, formatted, raw);
   }
 
   const count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
@@ -159,7 +175,9 @@
   /** A skill with a warning only has ❗ by its name; choosing it shows the warning. */
   function skillItem(skill) {
     const item = element('li', { className: 'skill', tabIndex: 0 },
-      element('div', { className: 'name' }, skill.warnings.length ? element('span', { className: 'flag', title: 'Has a warning: choose it to see it' }, '❗ ') : '', skill.name),
+      element('div', { className: 'name' },
+        element('span', {}, skill.warnings.length ? element('span', { className: 'flag', title: 'Has a warning: choose it to see it' }, '❗ ') : '', skill.name),
+        modified(skill, '')),
       skill.description ? element('div', { className: 'description' }, skill.description) : '',
       link(skill),
       skill.copies.length ? element('div', { className: 'copies' }, `also in ${skill.copies.join(', ')}`) : '');

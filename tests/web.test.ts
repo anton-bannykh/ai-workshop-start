@@ -10,9 +10,10 @@ import { pathToFileURL } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import { after, test } from 'node:test';
 import { run } from '../src/commands.ts';
+import { openDirectory } from '../src/local.ts';
 import { renderSkill } from '../src/markdown.ts';
 import { createWebServer, listen } from '../src/web.ts';
-import { CLI, EXAMPLE_COMMIT, FIXTURE, open } from './helpers.ts';
+import { CLI, EXAMPLE_COMMIT, EXAMPLE_MODIFIED, FIXTURE, open } from './helpers.ts';
 
 const server = createWebServer(open);
 const address = await listen(server, 0);
@@ -79,6 +80,7 @@ class FakeElement {
   disabled = false;
   value = '';
   textContent = '';
+  title = '';
   listeners: Record<string, ((event: object) => void)[]> = {};
   append(...nodes: (FakeElement | string)[]) { this.children.push(...nodes.filter((node) => node !== '')); }
   replaceChildren(...nodes: (FakeElement | string)[]) { this.children = []; this.append(...nodes); }
@@ -247,13 +249,13 @@ test('a skill\'s warning is the skill\'s: in the list only ❗ by its name; choo
     // Only the name and ❗ by it: no warning's text in the list.
     assert.deepEqual(items.filter((item) => item.querySelectorAll('.flag').length > 0).map((item) => item.dataset.name), [name]);
     const item = items.find((entry) => entry.dataset.name === name)!;
-    assert.equal(text(item.querySelectorAll('.name')[0]), `❗ ${name}`);
+    assert.equal(text(item.querySelectorAll('.name')[0].children[0]), `❗ ${name}`);
     assert.deepEqual($('skills').querySelectorAll('.warning').map(text), repo === FIXTURE ? [] : ['GitHub\'s GraphQL API answered nothing for it (R6); skipped']);
     assert.deepEqual($('messages').children, []);
-    // Chosen: its name, its link, its warning, then the tabs; in either tab.
+    // Chosen: its name, its link, when it was last modified, its warning, then the tabs; in either tab.
     const pane = choose($, item);
-    assert.deepEqual(pane.map((child) => (child as FakeElement).className || (child as FakeElement).tagName), ['H2', 'link', 'warning', 'tabs', 'markdown', 'PRE']);
-    assert.match(text(pane[2]), warning);
+    assert.deepEqual(pane.map((child) => (child as FakeElement).className || (child as FakeElement).tagName), ['H2', 'link', 'DIV', 'warning', 'tabs', 'markdown', 'PRE']);
+    assert.match(text(pane[3]), warning);
     // A skill without a warning: none above its SKILL.md.
     const other = items.find((entry) => entry.dataset.name !== name)!;
     assert.equal(choose($, other).filter((child) => (child as FakeElement).className === 'warning').length, 0);
@@ -309,6 +311,7 @@ test('a GitHub repository: its skills with name, description, pinned link and th
       commit: EXAMPLE_COMMIT,
       copies: [],
       text: '---\nname: commits\ndescription: Write commit messages the way this repository does. Use for every commit.\n---\n# Commits\n',
+      modified: EXAMPLE_MODIFIED,
       warnings: [],
       link: { base: `https://github.com/JetBrains/example/blob/${EXAMPLE_COMMIT}/`, path: '.claude/skills/commits/SKILL.md' },
       html:
@@ -515,4 +518,30 @@ test('./skill-atlas serve: prints the address, serves the page and stores nothin
   const scan = (await (await fetch(`${served[1]}api/scan?repo=${encodeURIComponent(FIXTURE)}`)).json()) as { skills: unknown[] };
   assert.equal(scan.skills.length, 3);
   assert.deepEqual(readdirSync(cwd), []);
+});
+
+test('when a skill was last modified: in grey, DD-MM-YY, by its name in the list and under its link when chosen', async () => {
+  const { page, $ } = await openPage('https://github.com/JetBrains/example');
+  // Not in the way: smaller, and in the muted grey of the description.
+  assert.match(page, /\.modified \{ color: var\(--muted\); font-size: 12px; font-weight: normal; \}/);
+  assert.match(page, /#skills \.name \.modified \{ margin-left: auto; \}/);
+  const [item] = $('skills').querySelectorAll('.skill');
+  const [date] = item.querySelectorAll('.modified');
+  assert.equal(text(date), '14-03-26');
+  assert.equal(date.title, `Last modified ${EXAMPLE_MODIFIED}`);
+  assert.ok(item.querySelectorAll('.name')[0].children.includes(date), 'on the name\'s line');
+  const pane = choose($, item);
+  assert.deepEqual(pane.flatMap((child) => typeof child === 'string' ? [] : child.querySelectorAll('.modified')).map(text), ['Last modified 14-03-26']);
+});
+
+test('a skill without a date: nothing in its place', async () => {
+  const undated = createWebServer(async (input) => ({ ...(await openDirectory(input)), modified: undefined }));
+  const at = await listen(undated, 0);
+  after(() => undated.close());
+  const { $ } = await openPage(FIXTURE, at);
+  const items = $('skills').querySelectorAll('.skill');
+  assert.equal(items.length, 3);
+  assert.deepEqual($('skills').querySelectorAll('.modified'), []);
+  const pane = choose($, items[0]);
+  assert.deepEqual(pane.map((child) => (child as FakeElement).className || (child as FakeElement).tagName), ['H2', 'link', 'tabs', 'markdown', 'PRE']);
 });

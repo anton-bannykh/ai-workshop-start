@@ -1,4 +1,4 @@
-import { readdir, readFile } from 'node:fs/promises';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { AtlasError } from './core/errors.ts';
@@ -22,7 +22,20 @@ export async function openDirectory(input: string): Promise<Source> {
     paths,
     warnings: [],
     read: (path) => readFile(join(root, path)).then((bytes) => new Uint8Array(bytes), () => undefined),
+    modified: (directories) => newest(root, paths, directories),
   };
+}
+
+/** When each directory was last modified: its newest file's modification time. */
+async function newest(root: string, paths: string[], directories: string[]): Promise<Map<string, string>> {
+  const modified = new Map<string, string>();
+  await Promise.all(directories.map(async (directory) => {
+    const files = paths.filter((path) => path.startsWith(`${directory}/`));
+    const times = await Promise.all(files.map((path) => stat(join(root, path)).then((stats) => stats.mtimeMs, () => 0)));
+    const latest = Math.max(0, ...times);
+    if (latest > 0) modified.set(directory, new Date(latest).toISOString());
+  }));
+  return modified;
 }
 
 /** Every regular file under the directory, as a path relative to the root. */

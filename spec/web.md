@@ -10,6 +10,8 @@ Listens on *127.0.0.1* only; *nothing is stored*.
 - A **filter** on the top right: as you type, only the skills whose **name** contains it, ignoring case; *in the page*, no new scan
 - While filtering, the counts are of the skills it keeps: `<id> · 2 of 42 skills`, and the same in the summary
 - Each skill: **name**, description, link (path in **bold**), `also in` copies
+- When it was last modified, in *grey*, out of the way: `DD-MM-YY`, local time; on the right of its name, and under
+  its link when chosen (`Last modified DD-MM-YY`); no date known → nothing
 - Choosing a skill shows **its SKILL.md**, *formatted*: the front matter as a table, the Markdown rendered
 - A **Raw** tab: the SKILL.md as it is in the file
 - An organization: `<owner> · N skills in M repositories · S scanned`; each repository a **group** with its heading,
@@ -23,7 +25,7 @@ Listens on *127.0.0.1* only; *nothing is stored*.
 - `/?repo=<link>` opens the page with that repository scanned
 ## API
 `GET /api/scan?repo=<GitHub URL | directory>` → JSON
-`{ repository, skills, warnings }`; each skill has its `link`, `text` (the SKILL.md), `html` and `warnings`, its own;
+`{ repository, skills, warnings }`; each skill has its `link`, `text` (the SKILL.md), `html`, `modified` (an ISO date, `''` when not known) and `warnings`, its own;
 `warnings`, the repository's
 An organization → `{ organization, repositories: [{ repository, skills, warnings }], scanned, warnings }`: the repositories
 with skills or warnings, each with its own; `scanned`, how many repositories were; `warnings`, the organization's

@@ -3,17 +3,19 @@
 // where skills live are yours to add.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { test } from 'node:test';
 import { openGitHub } from '../src/core/github.ts';
 import { findSkills } from '../src/core/find.ts';
 import { parseSkill } from '../src/core/parse.ts';
-import { replay } from '../src/core/replay.ts';
+import { replay, type Recording } from '../src/core/replay.ts';
+import { scan } from '../src/core/scan.ts';
 import { bold } from '../src/commands.ts';
-import { atlas, CLI, EXAMPLE_COMMIT, FIXTURE } from './helpers.ts';
+import { openDirectory } from '../src/local.ts';
+import { atlas, CLI, EXAMPLE_COMMIT, EXAMPLE_MODIFIED, FIXTURE, github, lastModified, tree } from './helpers.ts';
 
 const fixture = await atlas(['scan', FIXTURE]);
 const example = await atlas(['scan', 'github.com/JetBrains/example']);
@@ -130,4 +132,89 @@ test('rate limit → a message that asks for GITHUB_TOKEN', async () => {
   await assert.rejects(openGitHub('https://github.com/JetBrains/MPS', { fetch: limited }), {
     message: 'GitHub rate limit reached; set GITHUB_TOKEN',
   });
+});
+
+test('when a skill was last modified: on GitHub, with a token, the last commit that changed its directory, up to the scanned commit', async () => {
+  const result = await scan(await openGitHub('https://github.com/JetBrains/example', { fetch: github, token: 'test' }));
+  assert.deepEqual(result.skills.map((skill) => [skill.name, skill.modified]), [['commits', EXAMPLE_MODIFIED]]);
+  assert.deepEqual(result.warnings, []);
+});
+
+/** JetBrains/many: twelve skills in .agents/skills, s00 to s11, read with a token; `dates` answers when each was last modified. */
+function many(dates: Recording) {
+  const commit = '1111111111111111111111111111111111111111';
+  const names = Array.from({ length: 12 }, (_, index) => `s${String(index).padStart(2, '0')}`);
+  const recording: Recording = {
+    'https://api.github.com/repos/JetBrains/many': { status: 200, body: { full_name: 'JetBrains/many', default_branch: 'main' } },
+    'https://api.github.com/repos/JetBrains/many/commits/main': { status: 200, body: { sha: commit } },
+    [`https://api.github.com/repos/JetBrains/many/git/trees/${commit}`]: tree({ '.agents': 'm1' }),
+    'https://api.github.com/repos/JetBrains/many/git/trees/m1': tree({ skills: 'm2' }),
+    'https://api.github.com/repos/JetBrains/many/git/trees/m2?recursive=1': tree(Object.fromEntries(names.flatMap((name) => [[name, `t${name}`], [`${name}/SKILL.md`, null]]))),
+    ...Object.fromEntries(names.map((name) => [
+      `https://raw.githubusercontent.com/JetBrains/many/${commit}/.agents/skills/${name}/SKILL.md`,
+      { status: 200, body: `---\nname: ${name}\ndescription: Skill ${name}.\n---\n` },
+    ])),
+    ...dates,
+  };
+  return { commit, names, open: () => openGitHub('https://github.com/JetBrains/many', { fetch: replay(recording), token: 'test' }) };
+}
+
+test('more than 10 skills: their dates 10 a GraphQL query; a directory no commit changed has none', async () => {
+  const commit = '1111111111111111111111111111111111111111';
+  const dates = Object.fromEntries(Array.from({ length: 12 }, (_, index) => [
+    `.agents/skills/s${String(index).padStart(2, '0')}`,
+    index === 11 ? null : `2026-01-${String(index + 10).padStart(2, '0')}T12:00:00Z`,
+  ]));
+  const recording = lastModified('JetBrains/many', commit, dates);
+  assert.equal(Object.keys(recording).length, 2, 'two queries: 10 paths, then 2');
+  const result = await scan(await many(recording).open());
+  assert.deepEqual(result.skills.map((skill) => skill.modified), [...Object.values(dates).slice(0, 11), '']);
+  assert.deepEqual(result.warnings, []);
+});
+
+test('the dates cannot be asked for → the skills without them, and a warning, the repository\'s own; the scan goes on', async () => {
+  const { commit, names, open: openMany } = many({});
+  const failing: Recording = {};
+  for (const [key] of Object.entries(lastModified('JetBrains/many', commit, Object.fromEntries(names.map((name) => [`.agents/skills/${name}`, null]))))) {
+    failing[key] = { status: 200, body: { data: null, errors: [{ message: 'Something went wrong' }] } };
+  }
+  const result = await scan(await many(failing).open());
+  assert.equal(result.skills.length, 12);
+  assert.ok(result.skills.every((skill) => skill.modified === ''));
+  assert.deepEqual(result.warnings, ['cannot tell when its skills were last modified: GitHub GraphQL answered: Something went wrong']);
+  // GitHub not answering at all still stops the scan.
+  await assert.rejects(scan(await openMany()), /^Error: Cannot reach GitHub: not recorded: https:\/\/api\.github\.com\/graphql /);
+});
+
+test('without a token, no date: a GraphQL query each would spend the 60 requests an hour', async () => {
+  const recording: Recording = {
+    'https://api.github.com/repos/JetBrains/example': { status: 200, body: { full_name: 'JetBrains/example', default_branch: 'main' } },
+    'https://api.github.com/repos/JetBrains/example/commits/main': { status: 200, body: { sha: EXAMPLE_COMMIT } },
+    [`https://api.github.com/repos/JetBrains/example/git/trees/${EXAMPLE_COMMIT}?recursive=1`]: tree({ '.claude/skills/commits/SKILL.md': null }),
+    [`https://raw.githubusercontent.com/JetBrains/example/${EXAMPLE_COMMIT}/.claude/skills/commits/SKILL.md`]: { status: 200, body: '---\nname: commits\n---\n' },
+  };
+  // Any other request, GraphQL too, is not recorded: it would fail the scan.
+  const result = await scan(await openGitHub('https://github.com/JetBrains/example', { fetch: replay(recording) }));
+  assert.deepEqual(result.skills.map((skill) => [skill.name, skill.modified]), [['commits', '']]);
+});
+
+test('a local directory: a skill was last modified when its newest file was', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'skill-atlas-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const write = (path: string, time: string) => {
+    mkdirSync(join(root, dirname(path)), { recursive: true });
+    writeFileSync(join(root, path), '---\nname: x\n---\n');
+    utimesSync(join(root, path), new Date(time), new Date(time));
+  };
+  write('.claude/skills/notes/SKILL.md', '2026-02-01T10:00:00Z');
+  write('.claude/skills/notes/scripts/run.sh', '2026-03-05T10:00:00Z');
+  write('.claude/skills/old/SKILL.md', '2025-11-20T10:00:00Z');
+  // Another skill's file, whose name starts the same, is not this one's.
+  write('.claude/skills/old-two/SKILL.md', '2026-04-01T10:00:00Z');
+  const result = await scan(await openDirectory(root));
+  assert.deepEqual(result.skills.map((skill) => [skill.path, skill.modified]), [
+    ['.claude/skills/notes/SKILL.md', '2026-03-05T10:00:00.000Z'],
+    ['.claude/skills/old-two/SKILL.md', '2026-04-01T10:00:00.000Z'],
+    ['.claude/skills/old/SKILL.md', '2025-11-20T10:00:00.000Z'],
+  ]);
 });
