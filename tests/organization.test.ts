@@ -8,7 +8,7 @@ import { openGitHubOrganization, parseGitHubOwnerUrl, parseGitHubUrl } from '../
 import { replay, type Recording } from '../src/core/replay.ts';
 import { scanOrganization } from '../src/core/scan.ts';
 import { createWebServer, listen } from '../src/web.ts';
-import { atlas, EXAMPLE_COMMIT, open, TOOLS_COMMIT } from './helpers.ts';
+import { atlas, EXAMPLE_COMMIT, open, TOOLS_COMMIT, tree } from './helpers.ts';
 
 const organization = await atlas(['scan', 'https://github.com/JetBrains']);
 
@@ -70,7 +70,63 @@ test('a repository without skills is left out and never opened; one that cannot 
   );
 });
 
-/** A user, octo, without a token: its repositories are listed, and each one's tree. */
+test('each repository\'s skills come from its commit, not from search: a skill search left out is there, a file it still names is not', () => {
+  // Search named JetBrains/tools' lint and retired skills; its tree has lint and build.
+  assert.match(organization.stdout, /JetBrains\/tools · 2 skills\nbuild\n/);
+  assert.doesNotMatch(organization.stdout + organization.stderr, /retired/);
+});
+
+test('search results repeated across pages, in place of others → a warning: a repository may be missing', async () => {
+  const hit = (index: number) => ({ path: `.claude/skills/s${index}/SKILL.md`, repository: { full_name: 'many/repo' } });
+  const scanned = await scanWith(
+    {
+      'https://api.github.com/users/many': { status: 200, body: { login: 'many', type: 'Organization' } },
+      'https://api.github.com/search/code?q=filename:SKILL.md+org:many&per_page=100&page=1': {
+        status: 200,
+        body: { total_count: 150, items: Array.from({ length: 100 }, (_, index) => hit(index)) },
+      },
+      // Page 2 repeats 10 results of page 1: 140 different ones of 150.
+      'https://api.github.com/search/code?q=filename:SKILL.md+org:many&per_page=100&page=2': {
+        status: 200,
+        body: { total_count: 150, items: Array.from({ length: 50 }, (_, index) => hit(index + 90)) },
+      },
+      'https://api.github.com/repos/many/repo': { status: 200, body: { full_name: 'many/repo', default_branch: 'main' } },
+      'https://api.github.com/repos/many/repo/commits/main': { status: 200, body: { sha: OCTO_COMMIT } },
+      [`https://api.github.com/repos/many/repo/git/trees/${OCTO_COMMIT}`]: tree({ 'README.md': null }),
+    },
+    'https://github.com/many',
+    'test',
+  );
+  assert.equal(scanned.code, 0, scanned.stderr);
+  assert.equal(scanned.stderr, 'warning: GitHub search returned only 140 of the 150 SKILL.md files it counted; some skills may be missing, scan again');
+});
+
+test('scan shows how far it is while it runs, and clears it before the result', async () => {
+  const { progress } = organization;
+  assert.equal(progress[0], 'Scanning https://github.com/JetBrains…');
+  // JetBrains/example, JetBrains/tools and JetBrains/gone to open: one line as each is done.
+  const counts = progress.slice(1, -1).map((line) => /^Scanning JetBrains: (\d) of 3 repositories, \d skills? so far…$/.exec(line)?.[1]);
+  assert.deepEqual(counts, ['0', '1', '2', '3']);
+  assert.equal(progress.at(-2), 'Scanning JetBrains: 3 of 3 repositories, 3 skills so far…');
+  assert.equal(progress.at(-1), '');
+  // A repository: the first line, then cleared.
+  assert.deepEqual((await atlas(['scan', 'https://github.com/JetBrains/example'])).progress, ['Scanning https://github.com/JetBrains/example…', '']);
+});
+
+test('a scan that stops is cleared too, before its message', async () => {
+  const lines: string[] = [];
+  const fetch = replay({ ...OCTO, 'https://api.github.com/repos/octo/plain/commits/main': { status: 403, body: { message: 'API rate limit exceeded for 192.0.2.1.' } } });
+  const code = await run(['scan', 'https://github.com/octo'], {
+    open: (url) => openGitHubOrganization(url, { fetch }),
+    print: (text) => lines.push(`print: ${text}`),
+    error: (text) => lines.push(`error: ${text}`),
+    progress: (text) => lines.push(`progress: ${text}`),
+  });
+  assert.equal(code, 1);
+  assert.deepEqual(lines.slice(-2), ['progress: ', 'error: GitHub rate limit reached; set GITHUB_TOKEN']);
+});
+
+/** A user, octo, without a token: its repositories are listed, and each one's skill roots. */
 const OCTO_COMMIT = 'ffffffffffffffffffffffffffffffffffffffff';
 const OCTO: Recording = {
   'https://api.github.com/users/octo': { status: 200, body: { login: 'octo', type: 'User' } },
@@ -85,16 +141,9 @@ const OCTO: Recording = {
     ],
   },
   'https://api.github.com/repos/octo/notes/commits/main': { status: 200, body: { sha: OCTO_COMMIT } },
-  [`https://api.github.com/repos/octo/notes/git/trees/${OCTO_COMMIT}?recursive=1`]: {
-    status: 200,
-    body: {
-      truncated: false,
-      tree: [
-        { path: '.claude/skills/notes/SKILL.md', mode: '100644', type: 'blob', sha: '1' },
-        { path: 'README.md', mode: '100644', type: 'blob', sha: '2' },
-      ],
-    },
-  },
+  [`https://api.github.com/repos/octo/notes/git/trees/${OCTO_COMMIT}`]: tree({ '.claude': 'n1', 'README.md': null }),
+  'https://api.github.com/repos/octo/notes/git/trees/n1': tree({ skills: 'n2' }),
+  'https://api.github.com/repos/octo/notes/git/trees/n2?recursive=1': tree({ notes: 'n3', 'notes/SKILL.md': null }),
   [`https://raw.githubusercontent.com/octo/notes/${OCTO_COMMIT}/.claude/skills/notes/SKILL.md`]: {
     status: 200,
     body: '---\nname: notes\ndescription: Take notes.\n---\n',
@@ -102,13 +151,10 @@ const OCTO: Recording = {
   // What GitHub answers for an empty repository.
   'https://api.github.com/repos/octo/empty/commits/main': { status: 409, body: { message: 'Git Repository is empty.' } },
   'https://api.github.com/repos/octo/plain/commits/main': { status: 200, body: { sha: OCTO_COMMIT } },
-  [`https://api.github.com/repos/octo/plain/git/trees/${OCTO_COMMIT}?recursive=1`]: {
-    status: 200,
-    body: { truncated: false, tree: [{ path: 'README.md', mode: '100644', type: 'blob', sha: '3' }] },
-  },
+  [`https://api.github.com/repos/octo/plain/git/trees/${OCTO_COMMIT}`]: tree({ 'README.md': null }),
 };
 
-test('a user without a token: every repository but the forks, through its tree', async () => {
+test('a user without a token: every repository but the forks, through its skill roots', async () => {
   const scanned = await scanWith(OCTO, 'https://github.com/octo');
   assert.equal(scanned.code, 0, scanned.stderr);
   assert.equal(
@@ -168,7 +214,14 @@ test('more than 1000 SKILL.md files → a warning: GitHub search returns only th
     'test',
   );
   assert.equal(scanned.code, 0, scanned.stderr);
-  assert.equal(scanned.stderr, 'warning: GitHub search found 1500 SKILL.md files and returns only the first 1000');
+  assert.equal(
+    scanned.stderr,
+    [
+      'warning: GitHub search found 1500 SKILL.md files and returns only the first 1000',
+      // Page 2 came back empty: fewer results than GitHub counted.
+      'warning: GitHub search returned only 100 of the 1000 SKILL.md files it counted; some skills may be missing, scan again',
+    ].join('\n'),
+  );
 });
 
 test('unknown organization → a clear message, exit code 1', async () => {
@@ -215,6 +268,21 @@ test('web: GET /api/scan for an organization → its repositories with skills, e
   assert.match(lint.html, /^<table class="front-matter">/);
   assert.equal(body.warnings.length, 2);
   assert.match(body.warnings[0], /^JetBrains\/gone: /);
+});
+
+test('web: GET /api/scan?repo=…&progress → a JSON line as each repository is done, then the result', async () => {
+  const response = await fetch(new URL(`/api/scan?repo=${encodeURIComponent('https://github.com/JetBrains')}&progress`, address));
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-type') ?? '', /^application\/x-ndjson/);
+  const lines = (await response.text()).trimEnd().split('\n').map((line) => JSON.parse(line));
+  assert.deepEqual(lines.slice(0, -1).map(({ progress }) => [progress.done, progress.total]), [[0, 3], [1, 3], [2, 3], [3, 3]]);
+  assert.equal(lines.at(-2).progress.skills, 3);
+  const plain = await (await fetch(new URL(`/api/scan?repo=${encodeURIComponent('https://github.com/JetBrains')}`, address))).json();
+  assert.deepEqual(lines.at(-1), { result: plain });
+
+  // An error, after the answer has started: its line, with the status it would have had.
+  const failed = await (await fetch(new URL(`/api/scan?repo=${encodeURIComponent('/no/such/directory')}&progress`, address))).text();
+  assert.equal(failed, '{"status":400,"error":"Not a GitHub URL or a readable directory: /no/such/directory"}\n');
 });
 
 test('web: the page shows each repository as a collapsed group, with its heading; Expand all and Collapse all', async () => {

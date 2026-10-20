@@ -29,10 +29,24 @@ const EXAMPLE: Recording = {
 /** The commit GitHub answers for JetBrains/tools. */
 export const TOOLS_COMMIT = '0123456789abcdef0123456789abcdef01234567';
 
+/** A git tree as GitHub answers it: each path a blob, or a tree when its value is a sha. */
+export function tree(entries: Record<string, string | null>) {
+  return {
+    status: 200,
+    body: {
+      truncated: false,
+      tree: Object.entries(entries).map(([path, sha]) =>
+        sha ? { path, mode: '040000', type: 'tree', sha } : { path, mode: '100644', type: 'blob', sha: '0' }),
+    },
+  };
+}
+
 /**
  * What GitHub answers for the JetBrains organization: code search finds SKILL.md files in four
  * repositories. JetBrains/example and JetBrains/tools have skills; JetBrains/docs has none, so it is
- * never opened and has no answers here; JetBrains/gone is no longer there.
+ * never opened and has no answers here; JetBrains/gone is no longer there. As an owner-wide search
+ * can, it leaves out JetBrains/tools' build skill and names its retired one, gone from the commit:
+ * the skills come from each repository's own tree.
  */
 const ORGANIZATION: Recording = {
   'https://api.github.com/users/JetBrains': { status: 200, body: { login: 'JetBrains', type: 'Organization' } },
@@ -44,14 +58,25 @@ const ORGANIZATION: Recording = {
         { path: '.claude/skills/lint/SKILL.md', repository: { full_name: 'JetBrains/tools' } },
         { path: '.claude/skills/commits/SKILL.md', repository: { full_name: 'JetBrains/example' } },
         { path: 'docs/SKILL.md', repository: { full_name: 'JetBrains/docs' } },
+        { path: '.claude/skills/retired/SKILL.md', repository: { full_name: 'JetBrains/tools' } },
         { path: '.agents/skills/lint/SKILL.md', repository: { full_name: 'JetBrains/tools' } },
-        { path: '.github/skills/build/SKILL.md', repository: { full_name: 'JetBrains/tools' } },
         { path: '.claude/skills/old/SKILL.md', repository: { full_name: 'JetBrains/gone' } },
       ],
     },
   },
   'https://api.github.com/repos/JetBrains/tools': { status: 200, body: { full_name: 'JetBrains/tools', default_branch: 'master' } },
   'https://api.github.com/repos/JetBrains/tools/commits/master': { status: 200, body: { sha: TOOLS_COMMIT } },
+  // Only the skill roots are listed, whatever else the repository has.
+  [`https://api.github.com/repos/JetBrains/tools/git/trees/${TOOLS_COMMIT}`]: tree({ '.agents': 'a1', '.claude': 'c1', '.github': 'g1', src: 's1', 'README.md': null }),
+  'https://api.github.com/repos/JetBrains/tools/git/trees/a1': tree({ skills: 'a2' }),
+  'https://api.github.com/repos/JetBrains/tools/git/trees/a2?recursive=1': tree({ lint: 'a3', 'lint/SKILL.md': null }),
+  'https://api.github.com/repos/JetBrains/tools/git/trees/c1': tree({ skills: 'c2', 'settings.json': null }),
+  'https://api.github.com/repos/JetBrains/tools/git/trees/c2?recursive=1': tree({ lint: 'c3', 'lint/SKILL.md': null }),
+  'https://api.github.com/repos/JetBrains/tools/git/trees/g1': tree({ skills: 'g2', workflows: 'g3' }),
+  'https://api.github.com/repos/JetBrains/tools/git/trees/g2?recursive=1': tree({ build: 'g4', 'build/SKILL.md': null }),
+  [`https://api.github.com/repos/JetBrains/example/git/trees/${EXAMPLE_COMMIT}`]: tree({ '.claude': 'e1' }),
+  'https://api.github.com/repos/JetBrains/example/git/trees/e1': tree({ skills: 'e2' }),
+  'https://api.github.com/repos/JetBrains/example/git/trees/e2?recursive=1': tree({ commits: 'e3', 'commits/SKILL.md': null }),
   [`https://raw.githubusercontent.com/JetBrains/tools/${TOOLS_COMMIT}/.agents/skills/lint/SKILL.md`]: {
     status: 200,
     body: '---\nname: lint\ndescription: Run the linters. Then fix what they find.\n---\n',
@@ -75,10 +100,12 @@ export function open(input: string) {
 export async function atlas(args: string[]) {
   const stdout: string[] = [];
   const stderr: string[] = [];
+  const progress: string[] = [];
   const code = await run(args, {
     open,
     print: (text) => stdout.push(text),
     error: (text) => stderr.push(text),
+    progress: (text) => progress.push(text),
   });
-  return { code, stdout: stdout.join('\n'), stderr: stderr.join('\n') };
+  return { code, stdout: stdout.join('\n'), stderr: stderr.join('\n'), progress };
 }

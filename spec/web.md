@@ -13,12 +13,15 @@ Listens on *127.0.0.1* only; *nothing is stored*.
 - An organization: `<owner> · N skills in M repositories`; each repository a **group** with its heading,
   `<id> · N skills`, *collapsed* until opened; **Expand all** / **Collapse all**;
   the filter hides a group with no skill it keeps
+- While an organization is scanned: `Scanning… 5 of 16 repositories, 57 skills so far`
 - Warnings and errors shown on the page
 - `/?repo=<link>` opens the page with that repository scanned
 ## API
 `GET /api/scan?repo=<GitHub URL | directory>` → JSON
 `{ repository, skills, warnings }`; each skill has its `link`, `text` (the SKILL.md) and `html`
 An organization → `{ organization, repositories: [{ repository, skills }], warnings }`
+`&progress` → `application/x-ndjson`: `{ progress: { done, total, skills } }` as each repository is done,
+then `{ result }`, the same JSON; or `{ status, error }`. The page asks this way
 ## Formatting
 - Any repository's file: *nothing in it runs*. Raw HTML → shown as text (a block of it as code)
 - Links: `http`, `https`, `mailto`, `file`, `#anchors`; images: `http`, `https`, `file`; others → dropped

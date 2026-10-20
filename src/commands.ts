@@ -10,6 +10,8 @@ export type Context = {
   print(text: string): void;
   /** Errors and warnings. */
   error(text: string): void;
+  /** How far a scan is, in place of the last such line; '' clears it. Only a terminal has it. */
+  progress?(text: string): void;
   /** Starts the web view on the port and returns its address; only the Node CLI has it. */
   serve?(port: number): Promise<string>;
 };
@@ -39,8 +41,18 @@ export async function run(args: string[], context: Context): Promise<number> {
 
 async function scanCommand(args: string[], context: Context) {
   if (args.length !== 1) throw new AtlasError('Usage: skill-atlas scan <GitHub URL | directory>');
-  const source = await context.open(args[0]);
-  const result = 'organization' in source ? await scanOrganization(source) : await scan(source);
+  const progress = context.progress ?? (() => {});
+  progress(`Scanning ${args[0]}…`);
+  let result;
+  try {
+    const source = await context.open(args[0]);
+    result = 'organization' in source
+      ? await scanOrganization(source, ({ done, total, skills }) =>
+        progress(`Scanning ${source.organization.id}: ${done} of ${total} ${total === 1 ? 'repository' : 'repositories'}, ${count(skills)} so far…`))
+      : await scan(source);
+  } finally {
+    progress('');
+  }
   if ('organization' in result) printOrganization(result, context);
   else printRepository(result.repository, result.skills, context);
   for (const warning of result.warnings) context.error(`warning: ${warning}`);

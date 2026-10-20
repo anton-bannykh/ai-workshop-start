@@ -16,5 +16,9 @@ process.exitCode = await run(process.argv.slice(2), {
   open,
   print: (text) => console.log(text),
   error: (text) => console.error(text),
+  // On a terminal only: one line, rewritten in place and cut to its width, when it has one, so it never wraps.
+  progress: process.stderr.isTTY
+    ? (text) => process.stderr.write(`\r\x1b[K${text.slice(0, (process.stderr.columns || Infinity) - 1)}`)
+    : undefined,
   serve: (port) => listen(createWebServer(open), port),
 });

@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { AtlasError } from './core/errors.ts';
 import { skillLink, skillLinkParts, type Repository, type Skill } from './core/model.ts';
-import { scan, scanOrganization, type OrganizationSource, type Source } from './core/scan.ts';
+import { scan, scanOrganization, type OrganizationSource, type Progress, type Source } from './core/scan.ts';
 import { renderSkill } from './markdown.ts';
 
 const PAGE = readFileSync(new URL('./web/index.html', import.meta.url));
@@ -28,21 +28,40 @@ export function createWebServer(open: (input: string) => Promise<Source | Organi
     if (url.pathname !== '/api/scan') return json(404, { error: `Not found: ${url.pathname}` });
 
     const input = url.searchParams.get('repo')?.trim();
-    if (!input) return json(400, { error: 'Enter a GitHub repository URL or a directory' });
-    try {
-      const source = await open(input);
-      if ('organization' in source) {
-        const { organization, repositories, warnings } = await scanOrganization(source);
-        json(200, { organization, repositories: repositories.map(({ repository, skills }) => withPages(repository, skills)), warnings });
-      } else {
-        const { repository, skills, warnings } = await scan(source);
-        json(200, { ...withPages(repository, skills), warnings });
+    if (!input) return json(400, { error: 'Enter a GitHub repository or organization URL, or a directory' });
+    const failure = (error: unknown) => error instanceof AtlasError
+      ? { status: 400, error: error.message }
+      : { status: 500, error: `Unexpected error: ${error instanceof Error ? error.message : String(error)}` };
+
+    // With &progress, one JSON line as each repository is done, then the result or the error.
+    if (url.searchParams.has('progress')) {
+      response.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-store' });
+      const line = (value: unknown) => response.write(`${JSON.stringify(value)}\n`);
+      try {
+        line({ result: await scanned(open, input, (progress) => line({ progress })) });
+      } catch (error) {
+        line(failure(error));
       }
+      return response.end();
+    }
+    try {
+      json(200, await scanned(open, input));
     } catch (error) {
-      if (error instanceof AtlasError) json(400, { error: error.message });
-      else json(500, { error: `Unexpected error: ${error instanceof Error ? error.message : String(error)}` });
+      const { status, error: message } = failure(error);
+      json(status, { error: message });
     }
   });
+}
+
+/** What `/api/scan` answers: the repository, or the organization's repositories, with the warnings. */
+async function scanned(open: (input: string) => Promise<Source | OrganizationSource>, input: string, progress?: (progress: Progress) => void) {
+  const source = await open(input);
+  if ('organization' in source) {
+    const { organization, repositories, warnings } = await scanOrganization(source, progress);
+    return { organization, repositories: repositories.map(({ repository, skills }) => withPages(repository, skills)), warnings };
+  }
+  const { repository, skills, warnings } = await scan(source);
+  return { ...withPages(repository, skills), warnings };
 }
 
 /** The repository and its skills, each with its link and its SKILL.md as HTML. */

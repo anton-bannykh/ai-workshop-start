@@ -45,7 +45,7 @@ test('the page: a field for a repository link, the list of skills and a place fo
   assert.match(page.text, /<ul id="skills">/);
   assert.match(page.text, /<section id="skill">/);
   // The page asks the API, and links with ?repo= scan at once.
-  assert.match(page.text, /fetch\(`\/api\/scan\?repo=\$\{encodeURIComponent\(repo\)\}`\)/);
+  assert.match(page.text, /fetch\(`\/api\/scan\?repo=\$\{encodeURIComponent\(repo\)\}&progress`\)/);
   assert.equal((await get('/?repo=github.com/JetBrains/example')).text, page.text);
 });
 
@@ -120,6 +120,7 @@ async function openPage(repo: string) {
     history: { replaceState() {} },
     location: { search: `?repo=${encodeURIComponent(repo)}` },
     URLSearchParams,
+    TextDecoderStream,
     fetch: (path: string) => {
       scans++;
       return (scanned = fetch(new URL(path, address)));
@@ -199,6 +200,17 @@ test('the filter on an organization: only the skills it keeps, and only the repo
   type('');
   assert.deepEqual(shown(), [['commits'], ['build', 'lint']]);
   assert.equal($('summary').textContent, 'JetBrains · 3 skills in 2 repositories');
+});
+
+test('while an organization is scanned, the page shows how far it is', async () => {
+  const { $, rescan } = await openPage('https://github.com/JetBrains');
+  const summaries: string[] = [];
+  let text = '';
+  Object.defineProperty($('summary'), 'textContent', { get: () => text, set: (value: string) => { text = value; summaries.push(value); } });
+  await rescan();
+  assert.equal(summaries[0], 'Scanning…');
+  assert.match(summaries[1], /^Scanning… 0 of 3 repositories, 0 skills so far$/);
+  assert.deepEqual(summaries.slice(-2), ['Scanning… 3 of 3 repositories, 3 skills so far', 'JetBrains · 3 skills in 2 repositories']);
 });
 
 test('a GitHub repository: its skills with name, description, pinned link and their SKILL.md', async () => {
@@ -325,7 +337,7 @@ test('formatting: malformed front matter is shown as it is, with the warning', a
 });
 
 test('a clear message → 400 with the error', async () => {
-  assert.deepEqual(await scanned(''), { status: 400, body: { error: 'Enter a GitHub repository URL or a directory' } });
+  assert.deepEqual(await scanned(''), { status: 400, body: { error: 'Enter a GitHub repository or organization URL, or a directory' } });
   const missing = await scanned(join(FIXTURE, 'no-such-directory'));
   assert.equal(missing.status, 400);
   assert.match(missing.body.error, /^Not a GitHub URL or a readable directory: .*no-such-directory$/);
