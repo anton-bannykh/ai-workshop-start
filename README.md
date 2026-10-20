@@ -9,7 +9,7 @@ $ ./skill-atlas scan https://github.com/JetBrains/kotlin
 JetBrains/kotlin · 6 skills
 …
 build-tools-bump-gradle-api — Bumps the Gradle API version that Kotlin Gradle plugins are compiled against in the Kotlin compiler repository.
-  https://github.com/JetBrains/kotlin/blob/5ab6270ab772d113e8ad52ebfcaa0109c522ae00/.claude/skills/build-tools-bump-gradle-api/SKILL.md
+  https://github.com/JetBrains/kotlin/blob/5ab6270ab772d113e8ad52ebfcaa0109c522ae00/.agents/skills/build-tools-bump-gradle-api/SKILL.md
 …
 ```
 
