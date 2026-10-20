@@ -32,6 +32,8 @@ export type Skill = {
   copies: string[];
   /** The SKILL.md itself, as it is in the file. */
   text: string;
+  /** What went wrong reading this skill: its own, not its repository's. */
+  warnings: string[];
 };
 
 /**

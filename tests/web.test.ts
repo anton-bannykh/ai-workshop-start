@@ -97,8 +97,8 @@ class FakeElement {
   dispatch(type: string) { for (const listener of this.listeners[type] ?? []) listener({ preventDefault() {} }); }
 }
 
-/** Runs the page's script on a fake document, with `/?repo=<repo>` and the API answered by the web view. */
-async function openPage(repo: string) {
+/** Runs the page's script on a fake document, with `/?repo=<repo>` and the API answered by the web view at `at`. */
+async function openPage(repo: string, at = address) {
   const page = (await get('/')).text;
   const script = /<script type="module">([\s\S]*?)<\/script>/.exec(page)?.[1] ?? '';
   const elements = new Map<string, FakeElement>();
@@ -123,7 +123,7 @@ async function openPage(repo: string) {
     TextDecoderStream,
     fetch: (path: string) => {
       scans++;
-      return (scanned = fetch(new URL(path, address)));
+      return (scanned = fetch(new URL(path, at)));
     },
   };
   runInNewContext(`'use strict';\n${script}`, context);
@@ -216,27 +216,65 @@ test('the filter on an organization: only the skills it keeps, only the reposito
 /** The text in an element and all it holds. */
 const text = (node: FakeElement | string): string => (typeof node === 'string' ? node : node.textContent + node.children.map(text).join(''));
 
-test('a repository\'s warnings are under its own heading, which has ❗; none are listed at the top', async () => {
+/** Chooses a skill in the list, as Enter on it does; the SKILL.md pane, after. */
+const choose = ($: (id: string) => FakeElement, item: FakeElement) => {
+  for (const listener of item.listeners.keydown) listener({ key: 'Enter' });
+  return $('skill').children as FakeElement[];
+};
+
+test('a repository\'s own warnings are under its own heading, which has ❗, as has one with a skill that has a warning; none are listed at the top', async () => {
   const { $ } = await openPage('https://github.com/JetBrains');
   const groups = $('skills').children as FakeElement[];
   const headings = groups.map((group) => text(group.querySelectorAll('summary')[0]));
   assert.deepEqual(headings, ['JetBrains/example · 1 skill', '❗ JetBrains/hidden · 0 skills', 'JetBrains/secret · 1 skill', '❗ JetBrains/tools · 2 skills']);
+  // In the group, only the repository's own: JetBrains/tools's warning is its skill's.
   const warnings = groups.map((group) => group.querySelectorAll('.warning').map(text));
-  assert.deepEqual(warnings.slice(0, 3), [[], ['GitHub\'s GraphQL API answered nothing for it (R6); skipped'], []]);
-  assert.match(warnings[3].join('\n'), /^\.github\/skills\/build\/SKILL\.md: malformed front matter: [^\n]*; using the directory name$/);
+  assert.deepEqual(warnings, [[], ['GitHub\'s GraphQL API answered nothing for it (R6); skipped'], [], []]);
   // Inside the group: collapsed with it, above its skills.
-  const details = groups[3].querySelectorAll('details')[0];
-  assert.deepEqual(details.children.map((child) => (child as FakeElement).tagName), ['SUMMARY', 'P', 'UL']);
+  const details = groups.map((group) => group.querySelectorAll('details')[0].children.map((child) => (child as FakeElement).tagName));
+  assert.deepEqual(details[1], ['SUMMARY', 'P', 'UL']);
+  assert.deepEqual(details[3], ['SUMMARY', 'UL']);
   assert.deepEqual($('messages').children, []);
 });
 
+test('a skill\'s warning is the skill\'s: in the list only ❗ by its name; choosing it shows the warning, above its SKILL.md', async () => {
+  for (const [repo, name, warning] of [
+    [FIXTURE, 'release-checklist', /^malformed front matter: [^\n]*; using the directory name$/],
+    ['https://github.com/JetBrains', 'build', /^malformed front matter: Flow sequence [^\n]*; using the directory name$/],
+  ] as const) {
+    const { $ } = await openPage(repo);
+    const items = $('skills').querySelectorAll('.skill');
+    // Only the name and ❗ by it: no warning's text in the list.
+    assert.deepEqual(items.filter((item) => item.querySelectorAll('.flag').length > 0).map((item) => item.dataset.name), [name]);
+    const item = items.find((entry) => entry.dataset.name === name)!;
+    assert.equal(text(item.querySelectorAll('.name')[0]), `❗ ${name}`);
+    assert.deepEqual($('skills').querySelectorAll('.warning').map(text), repo === FIXTURE ? [] : ['GitHub\'s GraphQL API answered nothing for it (R6); skipped']);
+    assert.deepEqual($('messages').children, []);
+    // Chosen: its name, its link, its warning, then the tabs; in either tab.
+    const pane = choose($, item);
+    assert.deepEqual(pane.map((child) => (child as FakeElement).className || (child as FakeElement).tagName), ['H2', 'link', 'warning', 'tabs', 'markdown', 'PRE']);
+    assert.match(text(pane[2]), warning);
+    // A skill without a warning: none above its SKILL.md.
+    const other = items.find((entry) => entry.dataset.name !== name)!;
+    assert.equal(choose($, other).filter((child) => (child as FakeElement).className === 'warning').length, 0);
+  }
+});
+
+// The same as the web view, with a warning from listing the repository: one of its own, not a skill's.
+const listing = createWebServer(async (input) => {
+  const source = await open(input);
+  return 'organization' in source ? source : { ...source, warnings: ['listing left a file out'] };
+});
+const listingAddress = await listen(listing, 0);
+after(() => listing.close());
+
 test('a repository\'s own warnings, out of the way: in a collapsed group, ❗ and how many', async () => {
-  const { $ } = await openPage(FIXTURE);
+  const { $ } = await openPage(FIXTURE, listingAddress);
   const [group] = $('messages').children as FakeElement[];
   assert.equal(group.tagName, 'DETAILS');
   assert.equal(group.open, false);
   assert.equal(text(group.children[0]), '❗ 1 warning');
-  assert.match(text(group.children[1]), /^\.agents\/skills\/release-checklist\/SKILL\.md: malformed front matter: /);
+  assert.deepEqual(group.children.slice(1).map(text), ['listing left a file out']);
 });
 
 test('while an organization is scanned, the page shows how far it is', async () => {
@@ -271,6 +309,7 @@ test('a GitHub repository: its skills with name, description, pinned link and th
       commit: EXAMPLE_COMMIT,
       copies: [],
       text: '---\nname: commits\ndescription: Write commit messages the way this repository does. Use for every commit.\n---\n# Commits\n',
+      warnings: [],
       link: { base: `https://github.com/JetBrains/example/blob/${EXAMPLE_COMMIT}/`, path: '.claude/skills/commits/SKILL.md' },
       html:
         '<table class="front-matter"><tbody><tr><th>name</th><td>commits</td></tr>'
@@ -280,7 +319,7 @@ test('a GitHub repository: its skills with name, description, pinned link and th
   ]);
 });
 
-test('a directory: every skill sorted by name, its copies, its SKILL.md as in the file, and the warning', async () => {
+test('a directory: every skill sorted by name, its copies, its SKILL.md as in the file, and the skill\'s warning', async () => {
   const { status, body } = await scanned(FIXTURE);
   assert.equal(status, 200);
   assert.equal(body.repository.id, 'fixture');
@@ -292,8 +331,10 @@ test('a directory: every skill sorted by name, its copies, its SKILL.md as in th
     assert.equal(skill.text, readFileSync(join(FIXTURE, skill.path), 'utf8'));
     assert.equal(skill.link.base, `${pathToFileURL(FIXTURE).href}/`);
   }
-  assert.equal(body.warnings.length, 1);
-  assert.match(body.warnings[0], /^\.agents\/skills\/release-checklist\/SKILL\.md: malformed front matter: /);
+  // The warning is the malformed skill's own, not the repository's.
+  assert.deepEqual(body.warnings, []);
+  assert.deepEqual(body.skills.map((skill: { warnings: string[] }) => skill.warnings.length), [0, 0, 1]);
+  assert.match(body.skills[2].warnings[0], /^malformed front matter: /);
 });
 
 test('the page shows the SKILL.md formatted, with a Raw tab for the file as it is', async () => {
@@ -360,15 +401,16 @@ test('formatting: relative links point into the repository at the scanned commit
   assert.match(renderSkill('![x](x.png)\n', local), new RegExp(`<img src="${pathToFileURL(FIXTURE).href}/\\.claude/skills/commits/x\\.png"`));
 });
 
-test('formatting: malformed front matter is shown as it is, with the warning', async () => {
+test('formatting: malformed front matter is shown as it is; its warning is the skill\'s, shown above it', async () => {
   const { body } = await scanned(FIXTURE);
   const skill = body.skills.find((entry: { name: string }) => entry.name === 'release-checklist');
   const text = readFileSync(join(FIXTURE, '.agents/skills/release-checklist/SKILL.md'), 'utf8');
   const raw = text.split('\n').slice(1, text.split('\n').indexOf('---', 1)).join('\n');
   assert.ok(skill.html.startsWith(
-    '<div class="front-matter"><p class="warning">malformed front matter: Nested mappings are not allowed in compact mappings at line 3, column 14</p>'
+    '<div class="front-matter">'
       + `<pre>${raw.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`)}</pre></div>`,
   ), skill.html);
+  assert.deepEqual(skill.warnings, ['malformed front matter: Nested mappings are not allowed in compact mappings at line 3, column 14; using the directory name']);
   // No front matter at all: only the Markdown.
   assert.equal(renderSkill('# Title\n', FILE), '<h1>Title</h1>\n');
 });

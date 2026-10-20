@@ -11,7 +11,7 @@ build-tools-bump-gradle-api — Bumps the Gradle API…
 ```
 - Sorted by **name**; the description's *first sentence*
 - The path part of the link in **bold** (ANSI)
-- `also in <paths>` for copies; warnings go to *stderr*
+- `also in <paths>` for copies; warnings go to *stderr*; a skill's names its SKILL.md: `<path>: <warning>`
 ## An organization
 ```
 JetBrains · 132 skills in 16 repositories

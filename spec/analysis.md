@@ -6,13 +6,13 @@ Every `SKILL.md`: **name**, **description**, **link**
 Make the path part of the link bold
 ## Architecture
 Core: fetch → find → parse. CLI and web view: *thin clients*.
-Skill: id = `repo:path`, name, description, commit, text (the SKILL.md)
+Skill: id = `repo:path`, name, description, commit, text (the SKILL.md), warnings (its own)
 ## Details
 - **GitHub API**, no clone; *under 5 s* for intellij-community
 - The name: front matter, else the directory
 - The link pins the *scanned commit*
 - Only the skill roots, *at the scanned commit*; without `GITHUB_TOKEN`, the whole tree when it fits in one answer
-- Malformed front matter → a *warning*, the scan goes on
+- Malformed front matter → a *warning*, the skill's own; the scan goes on
 - A SKILL.md that cannot be read → still listed, by its *directory name*, with a warning that says why
 - A private repository: read with `GITHUB_TOKEN`, its SKILL.md files too
 - Unreachable repository → a clear message, exit code 1

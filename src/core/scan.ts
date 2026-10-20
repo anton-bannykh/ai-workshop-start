@@ -15,6 +15,7 @@ export type Source = {
   read(path: string): Promise<Uint8Array | undefined>;
 };
 
+/** `warnings` are the repository's own; each skill has its own. */
 export type ScanResult = { repository: Repository; skills: Skill[]; warnings: string[] };
 
 /** A repository of an organization, opened only when its turn comes. */
@@ -39,7 +40,7 @@ export type OrganizationSource = {
   warnings: string[];
 };
 
-/** A repository of an organization, with its own warnings. */
+/** A repository of an organization, with its own warnings; each skill has its own. */
 export type RepositoryResult = { repository: Repository; skills: Skill[]; warnings: string[] };
 
 /**
@@ -56,12 +57,8 @@ export type OrganizationScanResult = {
 export async function scan(source: Source): Promise<ScanResult> {
   const files = findSkills(source.paths);
   // The files are read at the same time: on GitHub, each one is a request.
-  const results = await Promise.all(files.map((file) => readSkill(source, file)));
-  return {
-    repository: source.repository,
-    skills: sortSkills(results.map((result) => result.skill)),
-    warnings: [...source.warnings, ...results.flatMap((result) => (result.warning ? [result.warning] : []))],
-  };
+  const skills = await Promise.all(files.map((file) => readSkill(source, file)));
+  return { repository: source.repository, skills: sortSkills(skills), warnings: source.warnings };
 }
 
 /** How far an organization's scan is: repositories scanned of all, and the skills found so far. */
@@ -116,7 +113,7 @@ export async function scanOrganization(source: OrganizationSource, progress?: (p
  * The skill in the file. One that cannot be read is still a skill, there at the commit: it is listed
  * by its directory, without a description, and with a warning that says why.
  */
-async function readSkill(source: Source, file: SkillFile): Promise<{ skill: Skill; warning?: string }> {
+async function readSkill(source: Source, file: SkillFile): Promise<Skill> {
   let bytes: Uint8Array | undefined;
   let failure = 'not found at the scanned commit';
   try {
@@ -127,7 +124,7 @@ async function readSkill(source: Source, file: SkillFile): Promise<{ skill: Skil
   }
   const text = bytes ? new TextDecoder().decode(bytes) : '';
   const parsed = bytes ? parseSkill(text) : { name: undefined, description: '', warning: `cannot be read (${failure}); listed by its directory name, without a description` };
-  const skill: Skill = {
+  return {
     id: `${source.repository.id}:${file.path}`,
     repository: source.repository.id,
     path: file.path,
@@ -136,6 +133,6 @@ async function readSkill(source: Source, file: SkillFile): Promise<{ skill: Skil
     commit: source.repository.commit,
     copies: file.copies,
     text,
+    warnings: parsed.warning ? [parsed.warning] : [],
   };
-  return { skill, warning: parsed.warning && `${file.path}: ${parsed.warning}` };
 }

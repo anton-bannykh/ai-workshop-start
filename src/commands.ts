@@ -78,10 +78,17 @@ function printOrganization(result: OrganizationScanResult, context: Context) {
   }
 }
 
-/** The organization's own warnings, then each repository's, by repository, each naming its repository. */
+/**
+ * The organization's own warnings, then each repository's, by repository, each naming its repository.
+ * A repository's: its own, then its skills', each naming its SKILL.md.
+ */
 function warnings(result: OrganizationScanResult | ScanResult): string[] {
-  if (!('organization' in result)) return result.warnings;
-  return [...result.warnings, ...result.repositories.flatMap(({ repository, warnings }) => warnings.map((warning) => `${repository.id}: ${warning}`))];
+  if (!('organization' in result)) return repositoryWarnings(result);
+  return [...result.warnings, ...result.repositories.flatMap((scanned) => repositoryWarnings(scanned).map((warning) => `${scanned.repository.id}: ${warning}`))];
+}
+
+function repositoryWarnings({ skills, warnings }: ScanResult): string[] {
+  return [...warnings, ...skills.flatMap(({ path, warnings }) => warnings.map((warning) => `${path}: ${warning}`))];
 }
 
 /** `<owner>/<repo> · N skills`, then each skill's name, first sentence and link. */

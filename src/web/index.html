@@ -102,6 +102,7 @@
   /** Formatted Markdown by default; the raw file on its own tab. */
   let view = 'formatted';
 
+  /** The skill's SKILL.md, its warnings above it. */
   function show(skill, item) {
     for (const other of $('skills').querySelectorAll('.skill')) other.setAttribute('aria-selected', String(other === item));
     const formatted = element('div', { id: 'formatted', className: 'markdown', innerHTML: skill.html });
@@ -118,7 +119,7 @@
       for (const button of tabs.children) button.setAttribute('aria-selected', String(button.id === `tab-${view}`));
     };
     select();
-    $('skill').replaceChildren(element('h2', {}, skill.name), link(skill), tabs, formatted, raw);
+    $('skill').replaceChildren(element('h2', {}, skill.name), link(skill), ...skill.warnings.map(warning), tabs, formatted, raw);
   }
 
   const count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
@@ -154,9 +155,10 @@
   }
   $('filter').addEventListener('input', applyFilter);
 
+  /** A skill with a warning only has ❗ by its name; choosing it shows the warning. */
   function skillItem(skill) {
     const item = element('li', { className: 'skill', tabIndex: 0 },
-      element('div', { className: 'name' }, skill.name),
+      element('div', { className: 'name' }, skill.warnings.length ? element('span', { className: 'flag', title: 'Has a warning: choose it to see it' }, '❗ ') : '', skill.name),
       skill.description ? element('div', { className: 'description' }, skill.description) : '',
       link(skill),
       skill.copies.length ? element('div', { className: 'copies' }, `also in ${skill.copies.join(', ')}`) : '');
@@ -184,9 +186,13 @@
     if (first !== -1) show(skills[first], $('skills').children[first]);
   }
 
+  /** Whether a repository has a warning: its own, or one of its skills'. */
+  const warned = (warnings, skills) => warnings.length > 0 || skills.some((skill) => skill.warnings.length > 0);
+
   /**
    * An organization: each repository's skills under its own heading, collapsed until it is opened. A
-   * repository with warnings has ❗ in its heading, and its warnings above its skills.
+   * repository with warnings, or with a skill that has one, has ❗ in its heading; its own warnings
+   * are above its skills, a skill's are the skill's.
    */
   function renderOrganization({ organization, repositories }) {
     const total = repositories.reduce((sum, { skills }) => sum + skills.length, 0);
@@ -196,7 +202,7 @@
       : `${organization.id} · ${count(total, 'skill', 'skills')} in ${count(withSkills, 'repository', 'repositories')}`;
     $('skills').replaceChildren(...repositories.map(({ repository, skills, warnings }) => element('li', { className: 'repository' },
       element('details', {},
-        element('summary', {}, warnings.length ? '❗ ' : '', `${repository.id} · `, element('span', { className: 'count' })),
+        element('summary', {}, warned(warnings, skills) ? '❗ ' : '', `${repository.id} · `, element('span', { className: 'count' })),
         ...warnings.map(warning),
         element('ul', {}, ...skills.map(skillItem))))));
     applyFilter();

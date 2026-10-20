@@ -40,14 +40,13 @@ export function renderMarkdown(markdown: string, fileUrl: string): string {
   return marked.parse(markdown) as string;
 }
 
-/** A table of the front matter's keys; malformed front matter as it is, with the warning. */
+/** A table of the front matter's keys; malformed front matter as it is (its warning is the skill's, shown above it). */
 function frontMatter(text: string, parsed: ReturnType<typeof parseSkill>): string {
   if (parsed.warning) {
     const lines = text.split(/\r?\n/);
     const end = lines.findIndex((line, index) => index > 0 && line.trim() === '---');
     if (lines[0].trim() !== '---' || end < 0) return '';
-    return `<div class="front-matter"><p class="warning">${escape(parsed.warning.replace(/; using the directory name$/, ''))}</p>`
-      + `<pre>${escape(lines.slice(1, end).join('\n'))}</pre></div>`;
+    return `<div class="front-matter"><pre>${escape(lines.slice(1, end).join('\n'))}</pre></div>`;
   }
   const entries: [string, unknown][] = [
     ...(parsed.name ? [['name', parsed.name] as [string, unknown]] : []),

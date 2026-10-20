@@ -14,13 +14,16 @@ Listens on *127.0.0.1* only; *nothing is stored*.
 - An organization: `<owner> · N skills in M repositories`; each repository a **group** with its heading,
   `<id> · N skills`, *collapsed* until opened; **Expand all** / **Collapse all**;
   the filter hides a group with no skill it keeps
-- A repository with warnings: ❗ in its heading, its warnings *in its group*, above its skills; also one with no skills
+- A repository with warnings, its own or a skill's: ❗ in its heading; its own *in its group*, above its skills;
+  also one with no skills
+- A skill with a warning: in the list, *only* ❗ by its name; choosing it shows the warning, above its SKILL.md
 - While an organization is scanned: `Scanning… 5 of 688 repositories, 57 skills so far`
-- Warnings and errors shown on the page; the warnings out of the way, in a *collapsed* group: `❗ N warnings`
+- Warnings and errors shown on the page; the other warnings out of the way, in a *collapsed* group: `❗ N warnings`
 - `/?repo=<link>` opens the page with that repository scanned
 ## API
 `GET /api/scan?repo=<GitHub URL | directory>` → JSON
-`{ repository, skills, warnings }`; each skill has its `link`, `text` (the SKILL.md) and `html`
+`{ repository, skills, warnings }`; each skill has its `link`, `text` (the SKILL.md), `html` and `warnings`, its own;
+`warnings`, the repository's
 An organization → `{ organization, repositories: [{ repository, skills, warnings }], warnings }`: the repositories with
 skills or warnings, each with its own; `warnings`, the organization's
 `&progress` → `application/x-ndjson`: `{ progress: { done, total, skills } }` as each repository is done,
@@ -29,6 +32,6 @@ then `{ result }`, the same JSON; or `{ status, error }`. The page asks this way
 - Any repository's file: *nothing in it runs*. Raw HTML → shown as text (a block of it as code)
 - Links: `http`, `https`, `mailto`, `file`, `#anchors`; images: `http`, `https`, `file`; others → dropped
 - Relative links → against the SKILL.md at the scanned commit; GitHub images → the raw file
-- Malformed front matter → shown as it is, with the warning
+- Malformed front matter → shown as it is; its warning, the skill's, above it
 - A clear message → `400 { error }`; unknown paths → `404`; not `GET` → `405`
 - Another `Host` than the local address → `403`

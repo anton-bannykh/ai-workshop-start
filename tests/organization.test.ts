@@ -257,17 +257,17 @@ test('a repository that cannot be opened is skipped with a warning under its own
   ]);
 });
 
-test('a SKILL.md that cannot be read is still listed, by its directory name, with a warning that says why', async () => {
+test('a SKILL.md that cannot be read is still listed, by its directory name, with its own warning that says why', async () => {
   const result = await scanOrganization(
     await openGitHubOrganization('https://github.com/octo', {
       fetch: replay({ ...OCTO, [`https://raw.githubusercontent.com/octo/notes/${OCTO_COMMIT}/.claude/skills/notes/SKILL.md`]: { status: 500, body: '' } }),
     }),
   );
-  assert.deepEqual(result.repositories.map(({ repository, skills, warnings }) => [repository.id, skills.map(({ name, description, text }) => [name, description, text]), warnings]), [
-    ['octo/notes', [['notes', '', '']], [
-      `.claude/skills/notes/SKILL.md: cannot be read (GitHub answered 500 for https://raw.githubusercontent.com/octo/notes/${OCTO_COMMIT}/.claude/skills/notes/SKILL.md); `
+  assert.deepEqual(result.repositories.map(({ repository, skills, warnings }) => [repository.id, skills.map(({ name, description, text, warnings }) => [name, description, text, warnings]), warnings]), [
+    ['octo/notes', [['notes', '', '', [
+      `cannot be read (GitHub answered 500 for https://raw.githubusercontent.com/octo/notes/${OCTO_COMMIT}/.claude/skills/notes/SKILL.md); `
         + 'listed by its directory name, without a description',
-    ]],
+    ]]], []],
   ]);
 });
 
@@ -275,7 +275,7 @@ const server = createWebServer(open);
 const address = await listen(server, 0);
 after(() => server.close());
 
-test('web: GET /api/scan for an organization → its repositories with skills, each skill as for a repository, each with its warnings', async () => {
+test('web: GET /api/scan for an organization → its repositories with skills, each skill as for a repository; each repository and skill with its own warnings', async () => {
   const response = await fetch(new URL(`/api/scan?repo=${encodeURIComponent('https://github.com/JetBrains')}`, address));
   assert.equal(response.status, 200);
   const body = JSON.parse(await response.text());
@@ -287,9 +287,12 @@ test('web: GET /api/scan for an organization → its repositories with skills, e
   const lint = body.repositories[3].skills[1];
   assert.deepEqual(lint.link, { base: `https://github.com/JetBrains/tools/blob/${TOOLS_COMMIT}/`, path: '.agents/skills/lint/SKILL.md' });
   assert.match(lint.html, /^<table class="front-matter">/);
-  // A repository's warnings are its own; the organization has none.
-  assert.deepEqual(body.repositories.map(({ warnings }: { warnings: string[] }) => warnings.length), [0, 1, 0, 1]);
-  assert.match(body.repositories[3].warnings[0], /^\.github\/skills\/build\/SKILL\.md: malformed front matter: /);
+  // A repository's warnings are its own, a skill's are the skill's; the organization has none.
+  assert.deepEqual(body.repositories.map(({ warnings }: { warnings: string[] }) => warnings.length), [0, 1, 0, 0]);
+  const [build] = body.repositories[3].skills;
+  assert.equal(build.warnings.length, 1);
+  assert.match(build.warnings[0], /^malformed front matter: [^\n]*; using the directory name$/);
+  assert.deepEqual(lint.warnings, []);
   assert.deepEqual(body.warnings, []);
 });
 
@@ -311,7 +314,7 @@ test('web: GET /api/scan?repo=…&progress → a JSON line as each repository is
 test('web: the page shows each repository as a collapsed group, with its heading; Expand all and Collapse all', async () => {
   const page = await (await fetch(address)).text();
   assert.match(page, /if \(body\.organization\) return renderOrganization\(body\);/);
-  assert.match(page, /element\('details', \{\},\n\s*element\('summary', \{\}, warnings\.length \? '❗ ' : '', `\$\{repository\.id\} · `, element\('span', \{ className: 'count' \}\)\),/);
+  assert.match(page, /element\('details', \{\},\n\s*element\('summary', \{\}, warned\(warnings, skills\) \? '❗ ' : '', `\$\{repository\.id\} · `, element\('span', \{ className: 'count' \}\)\),/);
   assert.match(page, /<button id="toggle" type="button"><\/button>/);
   assert.match(page, /'Expand all' : 'Collapse all'/);
   // The heading stays in sight while its skills scroll by.
