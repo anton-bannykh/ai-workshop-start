@@ -8,15 +8,18 @@
   :root { color-scheme: light dark; --muted: #6b7280; --line: #d1d5db; --accent: #2563eb; --warn: #b45309; --error: #b91c1c; }
   * { box-sizing: border-box; }
   body { margin: 0; font: 15px/1.5 system-ui, sans-serif; }
-  header { padding: 16px 24px; border-bottom: 1px solid var(--line); }
+  header { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 24px; padding: 16px 24px; border-bottom: 1px solid var(--line); }
+  #scanner { flex: 1 1 480px; }
   h1 { margin: 0 0 12px; font-size: 20px; }
   form { display: flex; gap: 8px; max-width: 900px; }
   input { flex: 1; padding: 8px 10px; font: inherit; border: 1px solid var(--line); border-radius: 6px; }
+  #filter { flex: 0 1 260px; margin-left: auto; }
   button { padding: 8px 16px; font: inherit; border: 0; border-radius: 6px; background: var(--accent); color: white; cursor: pointer; }
   button:disabled { opacity: .6; cursor: progress; }
   main { display: grid; grid-template-columns: minmax(280px, 420px) 1fr; min-height: calc(100vh - 110px); }
   #list { border-right: 1px solid var(--line); overflow: auto; }
-  #summary, #messages { padding: 12px 16px; }
+  #summary, #messages, #no-match { padding: 12px 16px; }
+  #no-match { margin: 0; }
   #summary { font-weight: 600; }
   #messages:empty { display: none; }
   #messages p { margin: 4px 0; }
@@ -63,12 +66,15 @@
 </head>
 <body>
 <header>
-  <h1>Skill Atlas</h1>
-  <form id="form">
-    <input id="repo" name="repo" type="text" required autofocus
-           placeholder="https://github.com/JetBrains/kotlin" aria-label="Repository or organization link">
-    <button id="scan" type="submit">Scan</button>
-  </form>
+  <div id="scanner">
+    <h1>Skill Atlas</h1>
+    <form id="form">
+      <input id="repo" name="repo" type="text" required autofocus
+             placeholder="https://github.com/JetBrains/kotlin" aria-label="Repository or organization link">
+      <button id="scan" type="submit">Scan</button>
+    </form>
+  </div>
+  <input id="filter" type="search" placeholder="Filter by name" aria-label="Filter skills by name" autocomplete="off">
 </header>
 <main>
   <section id="list">
@@ -76,6 +82,7 @@
     <button id="toggle" type="button"></button>
     <div id="messages"></div>
     <ul id="skills"></ul>
+    <p id="no-match" class="empty" hidden>No skill's name matches the filter.</p>
   </section>
   <section id="skill"><p class="empty">Enter a repository or organization link, then choose a skill to see its SKILL.md.</p></section>
 </main>
@@ -114,12 +121,29 @@
 
   const count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
+  /** Whether the filter keeps a skill: its name contains the filter, ignoring case and the spaces around it. */
+  const matches = (name, filter) => name.toLowerCase().includes(filter.trim().toLowerCase());
+  /** Filters the listed skills by name, in the page: no new scan. A repository's group is hidden when it keeps none. */
+  function applyFilter() {
+    let shown = 0;
+    for (const item of $('skills').querySelectorAll('.skill')) {
+      item.hidden = !matches(item.dataset.name, $('filter').value);
+      if (!item.hidden) shown++;
+    }
+    for (const group of $('skills').querySelectorAll('.repository')) {
+      group.hidden = [...group.querySelectorAll('.skill')].every((item) => item.hidden);
+    }
+    $('no-match').hidden = shown > 0 || $('skills').children.length === 0;
+  }
+  $('filter').addEventListener('input', applyFilter);
+
   function skillItem(skill) {
     const item = element('li', { className: 'skill', tabIndex: 0 },
       element('div', { className: 'name' }, skill.name),
       skill.description ? element('div', { className: 'description' }, skill.description) : '',
       link(skill),
       skill.copies.length ? element('div', { className: 'copies' }, `also in ${skill.copies.join(', ')}`) : '');
+    item.dataset.name = skill.name;
     item.addEventListener('click', (event) => { if (!event.target.closest('a')) show(skill, item); });
     item.addEventListener('keydown', (event) => { if (event.key === 'Enter') show(skill, item); });
     return item;
@@ -132,8 +156,10 @@
     const { repository, skills } = body;
     $('summary').textContent = `${repository.id} · ${count(skills.length, 'skill', 'skills')}`;
     $('skills').replaceChildren(...skills.map(skillItem));
+    applyFilter();
     $('skill').replaceChildren(element('p', { className: 'empty' }, skills.length ? 'Choose a skill to see its SKILL.md.' : 'No skills here.'));
-    if (skills.length) show(skills[0], $('skills').firstElementChild);
+    const first = skills.findIndex((skill) => matches(skill.name, $('filter').value));
+    if (first !== -1) show(skills[first], $('skills').children[first]);
   }
 
   /** An organization: each repository's skills under its own heading, collapsed until it is opened. */
@@ -144,6 +170,7 @@
       element('details', {},
         element('summary', {}, `${repository.id} · ${count(skills.length, 'skill', 'skills')}`),
         element('ul', {}, ...skills.map(skillItem))))));
+    applyFilter();
     const groups = [...$('skills').querySelectorAll('details')];
     const label = () => { $('toggle').textContent = groups.some((group) => !group.open) ? 'Expand all' : 'Collapse all'; };
     for (const group of groups) group.addEventListener('toggle', label);
@@ -159,6 +186,7 @@
     $('toggle').replaceChildren();
     $('messages').replaceChildren();
     $('skills').replaceChildren();
+    applyFilter();
     try {
       const response = await fetch(`/api/scan?repo=${encodeURIComponent(repo)}`);
       const body = await response.json();

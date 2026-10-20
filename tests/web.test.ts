@@ -7,6 +7,7 @@ import { request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { runInNewContext } from 'node:vm';
 import { after, test } from 'node:test';
 import { run } from '../src/commands.ts';
 import { renderSkill } from '../src/markdown.ts';
@@ -65,6 +66,139 @@ test('Tab in the field completes the sample link while the field is empty or its
   assert.match(page, /event\.key !== 'Tab' \|\| event\.shiftKey/);
   assert.match(page, /if \(completed === null\) return;/);
   assert.match(page, /event\.preventDefault\(\);\n\s*\$\('repo'\)\.value = completed;/);
+});
+
+/** An element of the page, as far as its script uses one. */
+class FakeElement {
+  children: (FakeElement | string)[] = [];
+  tagName = '';
+  className = '';
+  dataset: Record<string, string> = {};
+  hidden = false;
+  open = false;
+  disabled = false;
+  value = '';
+  textContent = '';
+  listeners: Record<string, ((event: object) => void)[]> = {};
+  append(...nodes: (FakeElement | string)[]) { this.children.push(...nodes.filter((node) => node !== '')); }
+  replaceChildren(...nodes: (FakeElement | string)[]) { this.children = []; this.append(...nodes); }
+  addEventListener(type: string, listener: (event: object) => void) { (this.listeners[type] ??= []).push(listener); }
+  setAttribute() {}
+  setSelectionRange() {}
+  get firstElementChild() { return this.children[0]; }
+  /** The descendants with a tag, or with a class as `.<class>` selects them. */
+  querySelectorAll(selector: string): FakeElement[] {
+    const elements = this.children.filter((child): child is FakeElement => typeof child !== 'string');
+    return elements.flatMap((child) => [
+      ...((selector.startsWith('.') ? child.className.split(' ').includes(selector.slice(1)) : child.tagName === selector.toUpperCase()) ? [child] : []),
+      ...child.querySelectorAll(selector),
+    ]);
+  }
+  dispatch(type: string) { for (const listener of this.listeners[type] ?? []) listener({ preventDefault() {} }); }
+}
+
+/** Runs the page's script on a fake document, with `/?repo=<repo>` and the API answered by the web view. */
+async function openPage(repo: string) {
+  const page = (await get('/')).text;
+  const script = /<script type="module">([\s\S]*?)<\/script>/.exec(page)?.[1] ?? '';
+  const elements = new Map<string, FakeElement>();
+  const document = {
+    getElementById: (id: string) => {
+      if (!elements.has(id)) {
+        const node = new FakeElement();
+        node.hidden = new RegExp(`id="${id}"[^>]*\\shidden[\\s>]`).test(page);
+        elements.set(id, node);
+      }
+      return elements.get(id)!;
+    },
+    createElement: (tag: string) => Object.assign(new FakeElement(), { tagName: tag.toUpperCase() }),
+  };
+  let scanned: Promise<unknown> = Promise.resolve();
+  let scans = 0;
+  const context = {
+    document,
+    history: { replaceState() {} },
+    location: { search: `?repo=${encodeURIComponent(repo)}` },
+    URLSearchParams,
+    fetch: (path: string) => {
+      scans++;
+      return (scanned = fetch(new URL(path, address)));
+    },
+  };
+  runInNewContext(`'use strict';\n${script}`, context);
+  const $ = document.getElementById;
+  const done = async () => {
+    await scanned;
+    while ($('scan').disabled || $('summary').textContent === 'Scanning…') await new Promise(setImmediate);
+  };
+  await done();
+  /** The names of the skills listed, and the names shown by the filter. */
+  const listed = () => {
+    const items = $('skills').children as FakeElement[];
+    return { all: items.map((item) => item.dataset.name), shown: items.filter((item) => !item.hidden).map((item) => item.dataset.name) };
+  };
+  const type = (text: string) => { $('filter').value = text; $('filter').dispatch('input'); };
+  const rescan = async () => { $('form').dispatch('submit'); await done(); };
+  return { page, $, listed, type, rescan, scans: () => scans, chosen: () => ($('skill').children[0] as FakeElement).children[0] };
+}
+
+test('a filter on the top right: as you type, only the skills whose name contains it, ignoring case; no new scan', async () => {
+  const { page, $, listed, type, rescan, scans, chosen } = await openPage(FIXTURE);
+  // On the top right: the header's last field, pushed to the right of the repository field.
+  const header = /<header>([\s\S]*?)<\/header>/.exec(page)?.[1] ?? '';
+  assert.match(header, /<\/form>\s*<\/div>\s*<input id="filter" type="search"[^>]*aria-label="Filter skills by name"[^>]*>\s*$/);
+  assert.match(page, /#filter \{[^}]*margin-left: auto;/);
+  assert.match(page, /header \{ display: flex;/);
+
+  const all = ['code-style', 'commits', 'release-checklist'];
+  assert.deepEqual(listed(), { all, shown: all });
+  assert.equal($('no-match').hidden, true);
+  assert.equal(scans(), 1);
+
+  type('co');
+  assert.deepEqual(listed().shown, ['code-style', 'commits']);
+  type('COMMITS');
+  assert.deepEqual(listed().shown, ['commits']);
+  type('  check ');
+  assert.deepEqual(listed().shown, ['release-checklist']);
+  // By name only: "Write" is in a description, not in a name.
+  type('write');
+  assert.deepEqual(listed().shown, []);
+  assert.equal($('no-match').hidden, false);
+  type('');
+  assert.deepEqual(listed().shown, all);
+  assert.equal($('no-match').hidden, true);
+  // In the page: filtering asks nothing of the API, the summary still counts every skill.
+  assert.equal($('summary').textContent, `fixture · 3 skills`);
+  assert.equal(scans(), 1);
+
+  // A filter typed before a scan applies to the new list, and the skill shown first is one it keeps.
+  type('release');
+  await rescan();
+  assert.deepEqual(listed(), { all, shown: ['release-checklist'] });
+  assert.equal(chosen(), 'release-checklist');
+});
+
+test('the filter on an organization: only the skills it keeps, and only the repositories with one of them', async () => {
+  const { $, type } = await openPage('https://github.com/JetBrains');
+  const groups = $('skills').children as FakeElement[];
+  /** Each repository shown, with the names of its skills shown; groups stay as they were opened. */
+  const shown = () => groups.filter((group) => !group.hidden).map((group) =>
+    group.querySelectorAll('.skill').filter((item) => !item.hidden).map((item) => item.dataset.name));
+  assert.deepEqual(shown(), [['commits'], ['build', 'lint']]);
+  assert.equal($('no-match').hidden, true);
+
+  type('LI');
+  assert.deepEqual(shown(), [['lint']]);
+  assert.deepEqual(groups.map((group) => group.querySelectorAll('details')[0]?.open), [false, false]);
+  type('i');
+  assert.deepEqual(shown(), [['commits'], ['build', 'lint']]);
+  type('nothing');
+  assert.deepEqual(shown(), []);
+  assert.equal($('no-match').hidden, false);
+  type('');
+  assert.deepEqual(shown(), [['commits'], ['build', 'lint']]);
+  assert.equal($('summary').textContent, 'JetBrains · 3 skills in 2 repositories');
 });
 
 test('a GitHub repository: its skills with name, description, pinned link and their SKILL.md', async () => {

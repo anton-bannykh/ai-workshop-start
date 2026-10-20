@@ -6,11 +6,13 @@ Listens on *127.0.0.1* only; *nothing is stored*.
 - A **field** for a repository or organization link (or a directory, as in `scan`)
 - **Tab** in the field completes the sample link, while the field is empty or its start; otherwise Tab moves on
 - The repository: `<id> · N skills`
+- A **filter** on the top right: as you type, only the skills whose **name** contains it, ignoring case; *in the page*, no new scan
 - Each skill: **name**, description, link (path in **bold**), `also in` copies
 - Choosing a skill shows **its SKILL.md**, *formatted*: the front matter as a table, the Markdown rendered
 - A **Raw** tab: the SKILL.md as it is in the file
 - An organization: `<owner> · N skills in M repositories`; each repository a **group** with its heading,
-  `<id> · N skills`, *collapsed* until opened; **Expand all** / **Collapse all**
+  `<id> · N skills`, *collapsed* until opened; **Expand all** / **Collapse all**;
+  the filter hides a group with no skill it keeps
 - Warnings and errors shown on the page
 - `/?repo=<link>` opens the page with that repository scanned
 ## API
