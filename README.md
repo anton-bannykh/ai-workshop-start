@@ -1,7 +1,7 @@
 # Skill Atlas
 
-Every agent skill in a repository: `./skill-atlas scan` finds each `SKILL.md` and prints its name,
-description and link.
+Every agent skill in a repository, or in a whole organization: `./skill-atlas scan` finds each
+`SKILL.md` and prints its name, description and link.
 
 ```console
 $ npm ci
@@ -12,6 +12,9 @@ build-tools-bump-gradle-api — Bumps the Gradle API version that Kotlin Gradle 
   https://github.com/JetBrains/kotlin/blob/5ab6270ab772d113e8ad52ebfcaa0109c522ae00/.agents/skills/build-tools-bump-gradle-api/SKILL.md
 …
 ```
+
+`./skill-atlas scan https://github.com/JetBrains` scans every repository of the organization, each
+under its own heading (set `GITHUB_TOKEN`: it is one code search then).
 
 `./skill-atlas serve` opens the same scan as a local web view at http://127.0.0.1:4173/: a field for
 a repository link, its skills, and each skill's SKILL.md.

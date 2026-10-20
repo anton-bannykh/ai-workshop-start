@@ -40,7 +40,7 @@ test('the page: a field for a repository link, the list of skills and a place fo
   assert.equal(page.status, 200);
   assert.match(page.type, /^text\/html/);
   assert.match(page.text, /<input id="repo"[^>]*type="text"/);
-  assert.match(page.text, /aria-label="Repository link"/);
+  assert.match(page.text, /aria-label="Repository or organization link"/);
   assert.match(page.text, /<ul id="skills">/);
   assert.match(page.text, /<section id="skill">/);
   // The page asks the API, and links with ?repo= scan at once.

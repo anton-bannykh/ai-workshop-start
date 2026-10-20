@@ -3,15 +3,15 @@
 import { readFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { AtlasError } from './core/errors.ts';
-import { skillLink, skillLinkParts } from './core/model.ts';
-import { scan, type Source } from './core/scan.ts';
+import { skillLink, skillLinkParts, type Repository, type Skill } from './core/model.ts';
+import { scan, scanOrganization, type OrganizationSource, type Source } from './core/scan.ts';
 import { renderSkill } from './markdown.ts';
 
 const PAGE = readFileSync(new URL('./web/index.html', import.meta.url));
 const HOST = '127.0.0.1';
 
 /** The web view's server, not yet listening; `open` is what the CLI's `scan` opens. */
-export function createWebServer(open: (input: string) => Promise<Source>): Server {
+export function createWebServer(open: (input: string) => Promise<Source | OrganizationSource>): Server {
   return createServer(async (request, response) => {
     const send = (status: number, type: string, body: string | Buffer) => {
       response.writeHead(status, { 'Content-Type': type, 'Cache-Control': 'no-store' });
@@ -30,22 +30,31 @@ export function createWebServer(open: (input: string) => Promise<Source>): Serve
     const input = url.searchParams.get('repo')?.trim();
     if (!input) return json(400, { error: 'Enter a GitHub repository URL or a directory' });
     try {
-      const result = await scan(await open(input));
-      const { repository } = result;
-      json(200, {
-        repository,
-        skills: result.skills.map((skill) => ({
-          ...skill,
-          link: skillLinkParts(repository, skill),
-          html: renderSkill(skill.text, skillLink(repository, skill)),
-        })),
-        warnings: result.warnings,
-      });
+      const source = await open(input);
+      if ('organization' in source) {
+        const { organization, repositories, warnings } = await scanOrganization(source);
+        json(200, { organization, repositories: repositories.map(({ repository, skills }) => withPages(repository, skills)), warnings });
+      } else {
+        const { repository, skills, warnings } = await scan(source);
+        json(200, { ...withPages(repository, skills), warnings });
+      }
     } catch (error) {
       if (error instanceof AtlasError) json(400, { error: error.message });
       else json(500, { error: `Unexpected error: ${error instanceof Error ? error.message : String(error)}` });
     }
   });
+}
+
+/** The repository and its skills, each with its link and its SKILL.md as HTML. */
+function withPages(repository: Repository, skills: Skill[]) {
+  return {
+    repository,
+    skills: skills.map((skill) => ({
+      ...skill,
+      link: skillLinkParts(repository, skill),
+      html: renderSkill(skill.text, skillLink(repository, skill)),
+    })),
+  };
 }
 
 /** Listens on 127.0.0.1; the page's address, once it is there. */
