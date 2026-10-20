@@ -1,5 +1,6 @@
-// Publishes recorded demos for a pull request: uploads them to the `demos` branch of `origin`, never the
-// repository it was forked from, and prints the Markdown that shows them in a PR description or comment.
+// Publishes recorded demos, and screenshots, for a pull request: uploads them to the `demos` branch of
+// `origin`, never the repository it was forked from, and prints the Markdown that shows them in a PR
+// description or comment.
 // `demos` has no history in common with `main`, so the videos never reach it. Needs `gh`, logged in.
 //
 //   node scripts/publish-demo.ts --pr <number> <demo.webp>…
@@ -39,26 +40,33 @@ function ensureBranch(repo: string) {
   if (!ref.ok) throw new Error(`Cannot create the ${BRANCH} branch in ${repo}`);
 }
 
-const { values, positionals: files } = parseArgs({ allowPositionals: true, options: { pr: { type: 'string' } } });
-if (!values.pr || !/^\d+$/.test(values.pr) || files.length === 0) {
-  throw new Error('Usage: node scripts/publish-demo.ts --pr <number> <demo.webp>…');
+/** Uploads the files for the PR; the URL of each, in order. Each upload keeps its own name, so an earlier
+ * comment still shows what it showed. */
+export function publish(pr: string, files: string[]): string[] {
+  const repo = origin();
+  ensureBranch(repo);
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
+  return files.map((file) => {
+    const path = `pr-${pr}/${stamp}-${basename(file)}`;
+    const put = api(`repos/${repo}/contents/${path}`, {
+      message: `Demo for #${pr}: ${basename(file)}`,
+      branch: BRANCH,
+      content: readFileSync(file).toString('base64'),
+    }, 'PUT');
+    if (!put.ok) throw new Error(`Cannot upload ${file} to ${repo}: ${JSON.stringify(put.json)}`);
+    return `https://github.com/${repo}/raw/${BRANCH}/${path}`;
+  });
 }
-const repo = origin();
-ensureBranch(repo);
-// Each recording keeps its own name, so an earlier comment still shows what it showed.
-const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
-const lines: string[] = [];
-for (const file of files) {
-  const path = `pr-${values.pr}/${stamp}-${basename(file)}`;
-  const put = api(`repos/${repo}/contents/${path}`, {
-    message: `Demo for #${values.pr}: ${basename(file)}`,
-    branch: BRANCH,
-    content: readFileSync(file).toString('base64'),
-  }, 'PUT');
-  if (!put.ok) throw new Error(`Cannot upload ${file} to ${repo}: ${JSON.stringify(put.json)}`);
-  const url = `https://github.com/${repo}/raw/${BRANCH}/${path}`;
+
+if (import.meta.main) {
+  const { values, positionals: files } = parseArgs({ allowPositionals: true, options: { pr: { type: 'string' } } });
+  if (!values.pr || !/^\d+$/.test(values.pr) || files.length === 0) {
+    throw new Error('Usage: node scripts/publish-demo.ts --pr <number> <demo.webp>…');
+  }
+  const urls = publish(values.pr, files);
   // An image plays inline, in any browser; anything else, a link.
-  const image = /\.(webp|gif|png)$/.exec(file);
-  lines.push(image ? `![Demo: ${basename(file, image[0])}](${url})` : `[${basename(file)}](${url})`);
+  console.log(files.map((file, index) => {
+    const image = /\.(webp|gif|png)$/.exec(file);
+    return image ? `![Demo: ${basename(file, image[0])}](${urls[index]})` : `[${basename(file)}](${urls[index]})`;
+  }).join('\n'));
 }
-console.log(lines.join('\n'));

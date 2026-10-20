@@ -15,6 +15,7 @@
     "test:e2e": "node --test tests/e2e/*.test.ts",
     "test:visual": "scripts/visual.sh",
     "test:visual:update": "scripts/visual.sh --update-snapshots",
+    "screenshots:diff": "node scripts/screenshot-diff.ts",
     "demo": "node scripts/demo.ts",
     "demo:publish": "node scripts/publish-demo.ts",
     "typecheck": "tsc --noEmit"
@@ -26,7 +27,10 @@
   "devDependencies": {
     "@playwright/test": "1.63.0",
     "@types/node": "^24.19.0",
+    "@types/pngjs": "6.0.5",
+    "pixelmatch": "7.2.0",
     "playwright": "1.63.0",
+    "pngjs": "7.0.0",
     "typescript": "^7.0.2"
   }
 }

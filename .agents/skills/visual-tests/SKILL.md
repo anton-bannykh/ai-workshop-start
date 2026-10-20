@@ -53,19 +53,38 @@ Then `npm run test:visual:update` writes the new PNGs. Run `npm run test:visual`
 
 ## Check each changed screenshot
 
-Before committing, look at every changed PNG, old and new:
+Before committing, look at every changed screenshot, before and after, with what differs boxed in red:
 
 ```sh
-git status --short tests/visual/screenshots
-git show HEAD:tests/visual/screenshots/<moment>.png > .demo/<moment>-old.png   # then look at both
+npm run -s screenshots:diff -- --base HEAD   # → .demo/screenshots/<moment>.before.png and .after.png
 ```
 
-Only what the change meant to change may differ. Anything else is a regression: fix the code.
+It lists each changed, new or removed screenshot, and how:
+- **changed in N places, boxed in red:** a red box around each part that differs, on both images.
+- **changed throughout:** the page moved everywhere, a font or a margin, so boxes wouldn't help.
+- **resized**, **new** or **removed**.
+
+Look at every pair. Only what the change meant to change may differ, and each box must be something you
+meant. Anything else is a regression: fix the code.
 
 ## In the PR
 
 Commit the screenshots in the same commit as the change. In "Files changed", GitHub then shows each one
 old and new, side by side (also swipe and onion skin).
 
-In the description, or in the comment for a later push, add a `## Screenshots` section: which screenshots
-changed and why, one line each, or "unchanged". CI runs the same tests (`visual` job), so it must be green.
+Then post them in the PR too, before and after, each under a cut:
+
+```sh
+npm run -s screenshots:diff -- --pr <number>                                   # creating the PR: against main
+npm run -s screenshots:diff -- --pr <number> --base origin/<branch>            # a later push: run it before
+                                                                               # `git push`, against what the PR showed
+```
+
+It uploads the images to the `demos` branch, like a demo, and prints a `## Screenshots` section:
+"Unchanged.", or a line with the counts, then one `<details>` per screenshot with a Before | After table.
+
+- Add one line under the heading on why they changed: the feature, the fix.
+- **Creating a PR:** the section goes in the description.
+- **A later push:** it goes in that push's one comment ([record-demo](../record-demo/SKILL.md#attach-it-to-the-pr)), before the demo.
+
+CI runs the same tests (`visual` job), so it must be green.
