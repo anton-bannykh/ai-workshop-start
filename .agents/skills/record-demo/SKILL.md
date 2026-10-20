@@ -1,12 +1,13 @@
 ---
 name: record-demo
-description: Record a demo of the web view — a GIF with the mouse visible, walking through a normal flow of using it, or through a feature's capabilities — and attach it to the PR. Use when creating a PR, when pushing changes to one (including addressing review), or when asked to record or show a demo of the UI.
+description: Record a demo of the web view — an animated WebP with the mouse visible, walking through a normal flow of using it, or through a feature's capabilities — and attach it to the PR. Use when creating a PR, when pushing changes to one (including addressing review), or when asked to record or show a demo of the UI.
 ---
 
 # Record a demo
 
 Every PR carries a demo of the web view, in its description; every later push to it, in a comment. The
-demo is a GIF of `./skill-atlas serve` as a user runs it, with the mouse drawn on the page.
+demo is an animated WebP of `./skill-atlas serve` as a user runs it, with the mouse drawn on the page:
+sharp, at twice the page's pixels, and it plays inline on GitHub and in any browser, with nothing to download.
 
 ## What to show
 
@@ -45,23 +46,23 @@ export default async function filter({ page, click, type, pause }: Demo) {
 ## Record and check
 
 ```sh
-GITHUB_TOKEN=$(gh auth token) npm run demo -- scripts/demos/<feature>.ts   # → .demo/<feature>.gif and .mp4
+GITHUB_TOKEN=$(gh auth token) npm run demo -- scripts/demos/<feature>.ts   # → .demo/<feature>.webp
 ```
 
-First time: `npx playwright install chromium`; ffmpeg must be installed.
+First time: `npx playwright install chromium`; `img2webp` must be installed (`brew install webp`).
 
-Then watch it before publishing: extract frames, e.g.
-`ffmpeg -i .demo/<feature>.mp4 -vf "fps=1/2,scale=640:-1,tile=2x4" -frames:v 1 sheet.png`, and look at them.
-The mouse must be visible, each click must have done what it should, and the feature must be on screen.
-Fix the scenario and record again until it is right.
+Then look at it before publishing: `.demo/<feature>-sheet.png` has eight moments of the demo, evenly apart,
+each with its time. The mouse must be visible, each click must have done what it should, and the feature
+must be on screen. Fix the scenario and record again until it is right.
 
 ## Attach it to the PR
 
 ```sh
-npm run -s demo:publish -- --pr <number> .demo/<feature>.gif .demo/<feature>.mp4
+npm run -s demo:publish -- --pr <number> .demo/<feature>.webp
 ```
 
-It uploads to the `demos` branch of `origin`, your fork, and prints the Markdown: the GIF, then a link to the MP4.
+It uploads to the `demos` branch of `origin`, your fork, and prints the Markdown that shows it. Publish only the
+`.webp`: the sheet is for checking.
 
 - **Creating a PR:** open it, publish with its number, then add a `## Demo` section to the description with
   the Markdown and one line on what it shows: `gh pr edit <number> --repo anton-bannykh/ai-workshop-start --body-file …`.

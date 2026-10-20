@@ -1,17 +1,18 @@
 // Records a demo of the web view: `./skill-atlas serve` as a user runs it, driven by a scenario, with
-// the mouse drawn on the page (videos don't show it). Writes <out>/<name>.gif, inline on GitHub, and
-// <out>/<name>.mp4. Needs ffmpeg and `npx playwright install chromium`.
+// the mouse drawn on the page. Writes <out>/<name>.webp, an animated image that GitHub shows inline and
+// any browser plays, and <out>/<name>-sheet.png, frames from it to check. Needs img2webp (libwebp) and
+// `npx playwright install chromium`.
 //
 //   node scripts/demo.ts [scenario.ts] [--out .demo] [--name demo]
 //
 // A scenario's default export gets a Demo; scripts/demos/flow.ts, the normal flow, is the default.
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { pathToFileURL } from 'node:url';
-import { chromium, type Locator, type Page } from 'playwright';
+import { chromium, type Browser, type Locator, type Page } from 'playwright';
 
 export type Demo = {
   page: Page;
@@ -28,7 +29,11 @@ export type Demo = {
   pause(ms?: number): Promise<void>;
 };
 
-const SIZE = { width: 1280, height: 800 };
+// Twice the pixels of the page, as on a high-density screen: GitHub shows it about this wide, sharp.
+const SIZE = { width: 1100, height: 700 };
+const SCALE = 2;
+// A frame lasts until the page changes; at 2x, a screenshot takes about 70 ms, so about 14 a second.
+const FRAME = 40;
 const ROOT = resolve(import.meta.dirname, '..');
 
 // An arrow that follows the mouse, and a ring on each click; drawn by the page, so the video has them.
@@ -64,12 +69,15 @@ async function serve() {
   return { address, stop: () => server.kill() };
 }
 
+type Frame = { data: Buffer; at: number };
+
 async function record(scenario: (demo: Demo) => Promise<void>, out: string, name: string) {
   const server = await serve();
-  const videos = mkdtempSync(join(tmpdir(), 'skill-atlas-demo-'));
-  const browser = await chromium.launch();
+  const work = mkdtempSync(join(tmpdir(), 'skill-atlas-demo-'));
+  let browser: Browser | undefined;
   try {
-    const context = await browser.newContext({ viewport: SIZE, recordVideo: { dir: videos, size: SIZE } });
+    browser = await launch();
+    const context = await browser.newContext({ viewport: SIZE, deviceScaleFactor: SCALE });
     await context.addInitScript(CURSOR);
     const page = await context.newPage();
     let at = { x: SIZE.width / 2, y: SIZE.height / 2 };
@@ -79,8 +87,16 @@ async function record(scenario: (demo: Demo) => Promise<void>, out: string, name
       const box = await target.boundingBox();
       if (!box) throw new Error(`Not on the page: ${target}`);
       const to = { x: box.x + Math.min(box.width / 2, 40), y: box.y + box.height / 2 };
-      // About 60 px a step: quick across the page, never a jump.
-      await page.mouse.move(to.x, to.y, { steps: Math.max(8, Math.round(Math.hypot(to.x - at.x, to.y - at.y) / 60)) });
+      // Eased, and timed like a hand: long enough for the frames to catch it, never a jump.
+      const from = at;
+      const duration = Math.min(700, Math.max(300, Math.hypot(to.x - from.x, to.y - from.y)));
+      const start = performance.now();
+      for (let t = 0; t < 1; ) {
+        t = Math.min(1, (performance.now() - start) / duration);
+        const eased = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
+        await page.mouse.move(from.x + (to.x - from.x) * eased, from.y + (to.y - from.y) * eased);
+        await page.waitForTimeout(16);
+      }
       at = to;
       await pause(250);
     };
@@ -112,34 +128,99 @@ async function record(scenario: (demo: Demo) => Promise<void>, out: string, name
     };
     await page.goto(server.address);
     await page.mouse.move(at.x, at.y);
-    await pause(600);
-    await scenario(demo);
-    await pause(1200);
-    await context.close(); // the video is written on close
-  } finally {
-    await browser.close();
-    server.stop();
-  }
 
-  const [video] = readdirSync(videos).filter((file) => file.endsWith('.webm'));
-  mkdirSync(out, { recursive: true });
-  const gif = join(out, `${name}.gif`);
-  const mp4 = join(out, `${name}.mp4`);
-  ffmpeg('-i', join(videos, video), '-vf',
-    // 64 colors, no dithering: a page is mostly flat, and its text stays sharp.
-    'fps=10,scale=880:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=64:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle', gif);
-  ffmpeg('-i', join(videos, video), '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-crf', '28', mp4);
-  rmSync(videos, { recursive: true, force: true });
-  return { gif, mp4 };
+    // Screenshots in a loop, lossless and at the page's full density: a recorded video, or Chromium's
+    // screencast, is at CSS pixels and blurry. Each frame is timed from when it was asked for.
+    const frames: Frame[] = [];
+    let recording = true;
+    const capturing = (async () => {
+      while (recording) {
+        const at = performance.now();
+        // The caret too: the default hides it, and typing shows it.
+        const frame = await page.screenshot({ type: 'png', caret: 'initial' });
+        // The same picture again: the last frame lasts longer.
+        if (!frames.at(-1)?.data.equals(frame)) frames.push({ data: frame, at });
+        const wait = FRAME - (performance.now() - at);
+        if (wait > 0) await new Promise((done) => setTimeout(done, wait));
+      }
+    })();
+    try {
+      await pause(600);
+      await scenario(demo);
+      await pause(1500);
+    } finally {
+      recording = false;
+      await capturing;
+    }
+    const end = performance.now();
+
+    mkdirSync(out, { recursive: true });
+    const webp = join(out, `${name}.webp`);
+    const kept = encode(frames, end, work, webp);
+    const sheet = join(out, `${name}-sheet.png`);
+    await contactSheet(browser, kept, sheet);
+    return { webp, sheet };
+  } finally {
+    // Whatever failed, from the browser's launch to the encoding: no server or frames left behind.
+    await browser?.close();
+    server.stop();
+    rmSync(work, { recursive: true, force: true });
+  }
 }
 
-function ffmpeg(...args: string[]) {
-  const result = spawnSync('ffmpeg', ['-y', '-loglevel', 'error', ...args], { stdio: 'inherit' });
-  if (result.error || result.status !== 0) throw new Error(`ffmpeg failed: ${result.error?.message ?? result.status}`);
+/** Chromium, or what to run when it isn't installed yet: the likely first-run error. */
+async function launch() {
+  try {
+    return await chromium.launch();
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("Executable doesn't exist")) {
+      throw new Error('Chromium is not installed: run `npx playwright install chromium`', { cause: error });
+    }
+    throw error;
+  }
+}
+
+/** The frames as an animated WebP, each shown until the next; the frames it kept, with their files. */
+function encode(frames: Frame[], end: number, work: string, webp: string) {
+  if (frames.length === 0) throw new Error('No frames recorded');
+  // Frames closer than FRAME: the latest picture, from the earlier time.
+  const kept: Frame[] = [];
+  for (const frame of frames) {
+    const last = kept.at(-1);
+    if (last && frame.at - last.at < FRAME) last.data = frame.data;
+    else kept.push({ ...frame });
+  }
+  const args = ['-loop', '0', '-lossy', '-q', '90', '-m', '4', '-sharp_yuv', '-kmax', '50'];
+  kept.forEach((frame, index) => {
+    const file = join(work, `${String(index).padStart(5, '0')}.png`);
+    writeFileSync(file, frame.data);
+    const duration = (kept[index + 1]?.at ?? end) - frame.at;
+    args.push('-d', String(Math.max(FRAME, Math.round(duration))), file);
+  });
+  const result = spawnSync('img2webp', [...args, '-o', webp], { stdio: ['ignore', 'ignore', 'inherit'] });
+  if (result.error) throw new Error(`img2webp: ${result.error.message}; install libwebp (brew install webp)`);
+  if (result.status !== 0) throw new Error(`img2webp failed with ${result.status}`);
+  return kept;
+}
+
+/** Eight moments of the demo, evenly apart, side by side: what to look at before publishing. */
+async function contactSheet(browser: Browser, frames: Frame[], file: string) {
+  const start = frames[0].at;
+  const length = frames.at(-1)!.at - start;
+  const shots = Array.from({ length: 8 }, (_, index) => {
+    const time = start + (length * index) / 7;
+    const frame = frames.findLast((candidate) => candidate.at <= time) ?? frames[0];
+    return { second: ((frame.at - start) / 1000).toFixed(1), src: `data:image/png;base64,${frame.data.toString('base64')}` };
+  });
+  const page = await browser.newPage({ viewport: { width: 1300, height: 400 } });
+  await page.setContent(`<body style="margin:0;display:grid;grid-template-columns:1fr 1fr;gap:4px;background:#888;font:14px sans-serif">${
+    shots.map((shot) => `<figure style="margin:0;position:relative"><img src="${shot.src}" style="width:100%;display:block"><figcaption style="position:absolute;right:4px;bottom:4px;background:#000a;color:#fff;padding:1px 6px">${shot.second} s</figcaption></figure>`).join('')}</body>`);
+  await page.screenshot({ path: file, fullPage: true });
+  await page.close();
 }
 
 const { values, positionals } = parseArgs({ allowPositionals: true, options: { out: { type: 'string', default: '.demo' }, name: { type: 'string' } } });
 const file = resolve(positionals[0] ?? join(ROOT, 'scripts/demos/flow.ts'));
 const { default: scenario } = (await import(pathToFileURL(file).href)) as { default: (demo: Demo) => Promise<void> };
 const files = await record(scenario, resolve(values.out), values.name ?? basename(file).replace(/\.[^.]+$/, ''));
-console.log(`${files.gif}\n${files.mp4}`);
+console.log(`${files.webp}\n${files.sheet}`);

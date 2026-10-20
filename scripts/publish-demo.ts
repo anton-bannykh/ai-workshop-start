@@ -2,7 +2,7 @@
 // repository it was forked from, and prints the Markdown that shows them in a PR description or comment.
 // `demos` has no history in common with `main`, so the videos never reach it. Needs `gh`, logged in.
 //
-//   node scripts/publish-demo.ts --pr <number> <file.gif> [<file.mp4>…]
+//   node scripts/publish-demo.ts --pr <number> <demo.webp>…
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { basename } from 'node:path';
@@ -41,7 +41,7 @@ function ensureBranch(repo: string) {
 
 const { values, positionals: files } = parseArgs({ allowPositionals: true, options: { pr: { type: 'string' } } });
 if (!values.pr || !/^\d+$/.test(values.pr) || files.length === 0) {
-  throw new Error('Usage: node scripts/publish-demo.ts --pr <number> <file.gif> [<file.mp4>…]');
+  throw new Error('Usage: node scripts/publish-demo.ts --pr <number> <demo.webp>…');
 }
 const repo = origin();
 ensureBranch(repo);
@@ -57,6 +57,8 @@ for (const file of files) {
   }, 'PUT');
   if (!put.ok) throw new Error(`Cannot upload ${file} to ${repo}: ${JSON.stringify(put.json)}`);
   const url = `https://github.com/${repo}/raw/${BRANCH}/${path}`;
-  lines.push(file.endsWith('.gif') ? `![Demo: ${basename(file, '.gif')}](${url})` : `[${basename(file)}](${url})`);
+  // An image plays inline, in any browser; anything else, a link.
+  const image = /\.(webp|gif|png)$/.exec(file);
+  lines.push(image ? `![Demo: ${basename(file, image[0])}](${url})` : `[${basename(file)}](${url})`);
 }
 console.log(lines.join('\n'));
