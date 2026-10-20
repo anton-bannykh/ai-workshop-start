@@ -10,12 +10,28 @@ the filter, an organization, warnings, errors. Each screenshot is a PNG in `test
 in git. A test fails if a single pixel differs. GitHub answers from recordings (`tests/visual/server.ts`),
 so the pages are the same on every run, and a changed screenshot means the page changed.
 
-The screenshots are made in one place only, the Playwright Docker image on linux/amd64, locally and in CI.
-Fonts and rendering differ elsewhere. Never run `npx playwright test` directly: the config refuses.
+The screenshots are made in one place only, the Playwright Docker image on linux/amd64, on every machine
+(macOS, Linux and CI). Fonts and rendering differ elsewhere, even on another Linux. Never run
+`npx playwright test` directly: the config refuses.
+
+## Docker
+
+`npm run test:visual` needs Docker. If something is missing, it says what to run and stops.
+
+- **macOS:** Docker Desktop, started: `open -a Docker`. It runs the amd64 image on Apple silicon too.
+- **Linux:** the Docker engine, started (`sudo systemctl start docker`), and you in the `docker` group
+  (`sudo usermod -aG docker "$USER"`, then log in again). Rootless Docker and Podman work too.
+  - The tests run as you, so the screenshots they write are yours, not root's.
+  - On an ARM machine, install the amd64 emulator once:
+    `docker run --privileged --rm tonistiigi/binfmt --install amd64`.
+- **CI:** the `visual` job runs the same `npm run test:visual` on a Linux runner.
+
+The first run downloads the image, about 1 GB. Under emulation (Apple silicon, ARM Linux), a run takes
+about 30 s.
 
 ## On every change
 
-1. Docker must be running (`open -a Docker` on macOS). Then run `npm run test:visual`.
+1. Run `npm run test:visual`.
 2. **It passes:** the page looks the same. Say so in the PR: "Screenshots: unchanged".
 3. **It fails, and the change was meant to change the page:** `npm run test:visual:update`, then check each
    changed screenshot (below), and commit them with the change.

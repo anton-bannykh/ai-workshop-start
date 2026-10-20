@@ -27,21 +27,21 @@ jobs:
         run: |
           ./skill-atlas help
           ./skill-atlas scan ./fixture
-  # The web view's screenshots, made where they were made: the Playwright image, as `npm run test:visual`.
-  # On a failure, the report has each screenshot expected, actual and their difference.
+  # The web view's screenshots, made the way they are made everywhere: `npm run test:visual`, the
+  # Playwright image in Docker, here on a Linux runner as on a Linux machine. On a failure, the report has
+  # each screenshot expected, actual and their difference.
   visual:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    container:
-      image: mcr.microsoft.com/playwright:v1.63.0-noble
-      options: --ipc=host
-    env:
-      SKILL_ATLAS_VISUAL: 1
-      NPM_CONFIG_UPDATE_NOTIFIER: false
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
-      - run: npm ci
-      - run: FONTCONFIG_FILE="$PWD/tests/visual/fonts.conf" npx playwright test
+      - run: npm run test:visual
+      # What the container wrote belongs to the user who ran it, not to root.
+      - name: No files owned by root
+        if: always()
+        run: |
+          owned=$(find . -path ./.git -prune -o ! -user "$(id -u)" -print)
+          if [ -n "$owned" ]; then echo "Owned by another user:"; echo "$owned"; exit 1; fi
       - if: failure()
         uses: actions/upload-artifact@v7
         with:
