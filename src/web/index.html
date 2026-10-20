@@ -33,6 +33,24 @@
   pre { white-space: pre-wrap; word-break: break-word; padding: 16px; border: 1px solid var(--line); border-radius: 6px;
         font: 13px/1.5 ui-monospace, monospace; }
   .empty { color: var(--muted); }
+  .tabs { display: flex; gap: 4px; margin: 12px 0; }
+  .tabs button { background: transparent; color: inherit; border: 1px solid var(--line); padding: 4px 12px; }
+  .tabs button[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: white; }
+  .markdown { max-width: 900px; }
+  .markdown h1, .markdown h2, .markdown h3 { margin: 1.2em 0 .5em; line-height: 1.25; }
+  .markdown h1 { font-size: 1.6em; border-bottom: 1px solid var(--line); padding-bottom: .3em; }
+  .markdown h2 { font-size: 1.3em; border-bottom: 1px solid var(--line); padding-bottom: .3em; }
+  .markdown code { font: 13px ui-monospace, monospace; padding: .1em .35em; border-radius: 4px;
+                   background: color-mix(in srgb, currentColor 8%, transparent); }
+  .markdown pre code { padding: 0; background: none; }
+  .markdown pre { white-space: pre; overflow: auto; background: color-mix(in srgb, currentColor 4%, transparent); }
+  .markdown blockquote { margin: 0; padding: 0 1em; color: var(--muted); border-left: 4px solid var(--line); }
+  .markdown table { border-collapse: collapse; margin: 1em 0; }
+  .markdown th, .markdown td { border: 1px solid var(--line); padding: 6px 12px; text-align: left; vertical-align: top; }
+  .markdown img { max-width: 100%; }
+  .markdown a { color: var(--accent); }
+  .markdown .front-matter th { white-space: nowrap; color: var(--muted); font-weight: 500; }
+  .markdown div.front-matter pre { white-space: pre-wrap; }
 </style>
 </head>
 <body>
@@ -63,13 +81,26 @@
   const link = (skill) => element('a', { className: 'link', href: skill.link.base + skill.link.path, target: '_blank', rel: 'noopener' },
     skill.link.base, element('b', {}, decodeURIComponent(skill.link.path)));
 
+  /** Formatted Markdown by default; the raw file on its own tab. */
+  let view = 'formatted';
+
   function show(skill, item) {
     for (const other of $('skills').children) other.setAttribute('aria-selected', String(other === item));
-    $('skill').replaceChildren(
-      element('h2', {}, skill.name),
-      link(skill),
-      element('pre', { id: 'text' }, skill.text),
-    );
+    const formatted = element('div', { id: 'formatted', className: 'markdown', innerHTML: skill.html });
+    const raw = element('pre', { id: 'text' }, skill.text);
+    const tab = (name, label) => {
+      const button = element('button', { type: 'button', id: `tab-${name}` }, label);
+      button.addEventListener('click', () => { view = name; select(); });
+      return button;
+    };
+    const tabs = element('div', { className: 'tabs', role: 'tablist' }, tab('formatted', 'Formatted'), tab('raw', 'Raw'));
+    const select = () => {
+      formatted.hidden = view !== 'formatted';
+      raw.hidden = view !== 'raw';
+      for (const button of tabs.children) button.setAttribute('aria-selected', String(button.id === `tab-${view}`));
+    };
+    select();
+    $('skill').replaceChildren(element('h2', {}, skill.name), link(skill), tabs, formatted, raw);
   }
 
   function render({ repository, skills, warnings }) {

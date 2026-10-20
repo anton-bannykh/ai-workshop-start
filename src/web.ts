@@ -3,8 +3,9 @@
 import { readFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { AtlasError } from './core/errors.ts';
-import { skillLinkParts } from './core/model.ts';
+import { skillLink, skillLinkParts } from './core/model.ts';
 import { scan, type Source } from './core/scan.ts';
+import { renderSkill } from './markdown.ts';
 
 const PAGE = readFileSync(new URL('./web/index.html', import.meta.url));
 const HOST = '127.0.0.1';
@@ -33,7 +34,11 @@ export function createWebServer(open: (input: string) => Promise<Source>): Serve
       const { repository } = result;
       json(200, {
         repository,
-        skills: result.skills.map((skill) => ({ ...skill, link: skillLinkParts(repository, skill) })),
+        skills: result.skills.map((skill) => ({
+          ...skill,
+          link: skillLinkParts(repository, skill),
+          html: renderSkill(skill.text, skillLink(repository, skill)),
+        })),
         warnings: result.warnings,
       });
     } catch (error) {
