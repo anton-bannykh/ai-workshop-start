@@ -11,6 +11,7 @@ import { test } from 'node:test';
 import { openGitHub } from '../src/core/github.ts';
 import { parseSkill } from '../src/core/parse.ts';
 import { replay } from '../src/core/replay.ts';
+import { bold } from '../src/commands.ts';
 import { atlas, CLI, EXAMPLE_COMMIT, FIXTURE } from './helpers.ts';
 
 const fixture = await atlas(['scan', FIXTURE]);
@@ -33,9 +34,16 @@ test('scan prints the repository, then each skill with its first sentence and pi
     [
       'JetBrains/example · 1 skill',
       'commits — Write commit messages the way this repository does.',
-      `  https://github.com/JetBrains/example/blob/${EXAMPLE_COMMIT}/.claude/skills/commits/SKILL.md`,
+      `  https://github.com/JetBrains/example/blob/${EXAMPLE_COMMIT}/${bold('.claude/skills/commits/SKILL.md')}`,
     ].join('\n'),
   );
+});
+
+test('the path part of the link is bold', () => {
+  const links = example.stdout.split('\n').filter((line) => line.startsWith('  '));
+  assert.deepEqual(links, [
+    `  https://github.com/JetBrains/example/blob/${EXAMPLE_COMMIT}/\x1b[1m.claude/skills/commits/SKILL.md\x1b[22m`,
+  ]);
 });
 
 test('./fixture: every skill, sorted by name, linked to its file, with a warning for the malformed one', () => {
@@ -46,11 +54,11 @@ test('./fixture: every skill, sorted by name, linked to its file, with a warning
     [
       'fixture · 3 skills',
       "code-style — Follow the project's code style.",
-      `  ${root}/.github/skills/code-style/SKILL.md`,
+      `  ${root}/${bold('.github/skills/code-style/SKILL.md')}`,
       'commits — Write commit messages the way this repository does.',
-      `  ${root}/.claude/skills/commits/SKILL.md`,
+      `  ${root}/${bold('.claude/skills/commits/SKILL.md')}`,
       'release-checklist',
-      `  ${root}/.agents/skills/release-checklist/SKILL.md`,
+      `  ${root}/${bold('.agents/skills/release-checklist/SKILL.md')}`,
     ].join('\n'),
   );
   assert.match(fixture.stderr, /^warning: \.agents\/skills\/release-checklist\/SKILL\.md: malformed front matter: /);

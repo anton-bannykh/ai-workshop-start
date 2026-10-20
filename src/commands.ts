@@ -1,7 +1,7 @@
 // The skill-atlas commands. The same code serves the Node CLI and the browser
 // terminal: everything that differs between them comes in through the context.
 import { AtlasError } from './core/errors.ts';
-import { skillLink, type Repository, type Skill } from './core/model.ts';
+import { skillLinkParts, type Repository, type Skill } from './core/model.ts';
 import { scan, type Source } from './core/scan.ts';
 
 export type Context = {
@@ -44,9 +44,15 @@ function printRepository(repository: Repository, skills: Skill[], { print }: Con
   print(`${repository.id} · ${skills.length} ${skills.length === 1 ? 'skill' : 'skills'}`);
   for (const skill of skills) {
     print(skill.description ? `${skill.name} — ${firstSentence(skill.description)}` : skill.name);
-    print(`  ${skillLink(repository, skill)}`);
+    const link = skillLinkParts(repository, skill);
+    print(`  ${link.base}${bold(link.path)}`);
     if (skill.copies.length > 0) print(`  also in ${skill.copies.join(', ')}`);
   }
+}
+
+/** ANSI bold, then back to normal intensity. */
+export function bold(text: string): string {
+  return `\x1b[1m${text}\x1b[22m`;
 }
 
 function firstSentence(text: string): string {

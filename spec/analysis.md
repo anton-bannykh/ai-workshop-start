@@ -3,6 +3,7 @@
 A **GitHub repository** URL, or a local directory
 ## Output
 Every `SKILL.md`: **name**, **description**, **link**
+Make the path part of the link bold
 ## Architecture
 Core: fetch → find → parse. CLI: a *thin client*.
 Skill: id = `repo:path`, name, description, commit
