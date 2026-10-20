@@ -29,8 +29,14 @@ export type Skill = {
  * `https://github.com/<owner>/<repo>/blob/<commit>/<path>`; in a local directory, the file itself.
  */
 export function skillLink(repository: Repository, skill: Skill): string {
+  const { base, path } = skillLinkParts(repository, skill);
+  return base + path;
+}
+
+/** `skillLink` in two parts: everything up to the skill's path, then the path itself. */
+export function skillLinkParts(repository: Repository, skill: Skill): { base: string; path: string } {
   const path = skill.path.split('/').map(encodeURIComponent).join('/');
-  return skill.commit ? `${repository.url}/blob/${skill.commit}/${path}` : `${repository.url}/${path}`;
+  return { base: skill.commit ? `${repository.url}/blob/${skill.commit}/` : `${repository.url}/`, path };
 }
 
 /** By name, then by path: the same order everywhere, whatever the locale. */
