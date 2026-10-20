@@ -27,3 +27,25 @@ jobs:
         run: |
           ./skill-atlas help
           ./skill-atlas scan ./fixture
+  # The web view's screenshots, made where they were made: the Playwright image, as `npm run test:visual`.
+  # On a failure, the report has each screenshot expected, actual and their difference.
+  visual:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    container:
+      image: mcr.microsoft.com/playwright:v1.63.0-noble
+      options: --ipc=host
+    env:
+      SKILL_ATLAS_VISUAL: 1
+      NPM_CONFIG_UPDATE_NOTIFIER: false
+    steps:
+      - uses: actions/checkout@v7
+      - run: npm ci
+      - run: FONTCONFIG_FILE="$PWD/tests/visual/fonts.conf" npx playwright test
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: visual-report
+          path: |
+            playwright-report/
+            test-results/

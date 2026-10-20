@@ -127,7 +127,7 @@ const ORGANIZATION: Recording = {
 /** JetBrains/secret's SKILL.md, there only for a request with the token, as for a private repository. */
 const SECRET = `https://raw.githubusercontent.com/JetBrains/secret/${SECRET_COMMIT}/.agents/skills/deploy/SKILL.md`;
 const recorded = replay({ ...EXAMPLE, ...ORGANIZATION });
-const github: Fetch = async (url, init) => {
+export const github: Fetch = async (url, init) => {
   if (url !== SECRET) return recorded(url, init);
   if (init?.headers?.Authorization !== 'Bearer test') return new Response('404: Not Found', { status: 404 });
   return new Response('---\nname: deploy\ndescription: Deploy it.\n---\n');
