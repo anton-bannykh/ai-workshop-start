@@ -12,6 +12,10 @@ Take the review a pull request received and implement what the reviewers asked f
 - A PR number, if given.
 - Otherwise the current branch's PR: `gh pr view --repo anton-bannykh/ai-workshop-start --json number -q .number`.
 
+## Before you start
+
+Mark that you started working - put a rocket emoji on the review comment.
+
 ## Collect the review
 
 Everything reviewers said, in one query: reviews, inline threads (with whether they are resolved), and the conversation.
