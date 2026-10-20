@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { test } from 'node:test';
 import { SKILL_ROOTS } from '../../src/core/find.ts';
+import { openGitHub } from '../../src/core/github.ts';
+import { scan as scanSource } from '../../src/core/scan.ts';
 import { CLI } from '../helpers.ts';
 
 const token = process.env.GITHUB_TOKEN;
@@ -118,6 +120,19 @@ test('JetBrains/MPS: the same skill in .agents/skills and .claude/skills is one,
   assert.equal(skill.path, '.agents/skills/commits/SKILL.md');
   assert.deepEqual(skill.copies, ['.claude/skills/commits/SKILL.md']);
   await assertLinkWorks('JetBrains/MPS', skill);
+});
+
+test('JetBrains/kotlin: when each skill was last modified, a commit\'s date, not after the scanned commit', { skip, timeout: 120_000 }, async () => {
+  const source = await openGitHub('https://github.com/JetBrains/kotlin', { fetch, token });
+  const result = await scanSource(source);
+  assert.ok(result.skills.length > 0);
+  assert.deepEqual(result.warnings, []);
+  const scanned = await fetch(`https://api.github.com/repos/JetBrains/kotlin/commits/${source.repository.commit}`, { headers: { Authorization: `Bearer ${token}` } });
+  const committed = Date.parse(((await scanned.json()) as { commit: { committer: { date: string } } }).commit.committer.date);
+  for (const skill of result.skills) {
+    assert.match(skill.modified, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/, skill.name);
+    assert.ok(Date.parse(skill.modified) <= committed, `${skill.name}: ${skill.modified}`);
+  }
 });
 
 test('JetBrains/intellij-community: under 5 s', { skip, timeout: 120_000 }, async () => {

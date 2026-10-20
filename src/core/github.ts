@@ -179,7 +179,7 @@ async function openRepository(github: Client, info: RepositoryInfo, list: (sha: 
   return source(github, id, sha, await list(sha));
 }
 
-/** The repository at the commit, with its files; each read at that commit. */
+/** The repository at the commit, with its files; each read at that commit. With a token, when each skill was last modified. */
 function source(github: Client, id: string, sha: string, paths: string[]): Source {
   const [organization, repo] = id.split('/');
   return {
@@ -187,7 +187,48 @@ function source(github: Client, id: string, sha: string, paths: string[]): Sourc
     paths,
     warnings: [],
     read: (path) => github.raw(`${RAW}/${id}/${sha}/${encodePath(path)}`),
+    modified: github.authorized ? (directories) => lastModified(github, id, sha, directories) : undefined,
   };
+}
+
+/** The last commit that changed each path, from the commit back: one history each, `count` paths a query. */
+function lastModifiedQuery(count: number): string {
+  const paths = Array.from({ length: count }, (_, index) => index);
+  return `query($owner: String!, $name: String!, $commit: GitObjectID!, ${paths.map((index) => `$path${index}: String!`).join(', ')}) {
+  repository(owner: $owner, name: $name) {
+    object(oid: $commit) {
+      ... on Commit {
+        ${paths.map((index) => `path${index}: history(first: 1, path: $path${index}) { nodes { committedDate } }`).join('\n        ')}
+      }
+    }
+  }
+}`;
+}
+
+type History = { nodes: { committedDate: string }[] } | null;
+
+/**
+ * When each directory was last modified: the date of the last commit that changed it, up to the commit.
+ * Over GraphQL, so with a token only: without one, a request per skill would spend the 60 an hour.
+ * A history is slow to look up in a large repository: 10 paths a query, all of them at once.
+ */
+async function lastModified(github: Client, id: string, sha: string, directories: string[]): Promise<Map<string, string>> {
+  const [owner, name] = id.split('/');
+  const sorted = [...directories].sort();
+  const batches = [];
+  for (let start = 0; start < sorted.length; start += 10) batches.push(sorted.slice(start, start + 10));
+  const answers = await Promise.all(batches.map((batch) => github.graphql<{ repository: { object: Record<string, History> | null } | null }>(
+    lastModifiedQuery(batch.length),
+    { owner, name, commit: sha, ...Object.fromEntries(batch.map((path, index) => [`path${index}`, path])) },
+  )));
+  const modified = new Map<string, string>();
+  for (const [index, answer] of answers.entries()) {
+    for (const [at, path] of batches[index].entries()) {
+      const date = answer.repository?.object?.[`path${at}`]?.nodes[0]?.committedDate;
+      if (date) modified.set(path, date);
+    }
+  }
+  return modified;
 }
 
 /** Every repository on the listing's pages, forks left out, a page at a time. */
@@ -270,6 +311,8 @@ function client({ fetch, token }: GitHubOptions) {
   }
 
   return {
+    /** Whether it asks with a token: GraphQL needs one. */
+    authorized: Boolean(token),
     /** A GitHub API answer; `notFound` explains a 404. */
     json<T>(url: string, notFound = `Not found on GitHub: ${url}`): Promise<T> {
       if (!answers.has(url)) answers.set(url, request(url, notFound));

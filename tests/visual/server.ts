@@ -5,7 +5,7 @@ import { AtlasError } from '../../src/core/errors.ts';
 import { openGitHub, openGitHubOrganization, parseGitHubOwnerUrl, parseGitHubUrl } from '../../src/core/github.ts';
 import { replay, type Recording } from '../../src/core/replay.ts';
 import { createWebServer, listen } from '../../src/web.ts';
-import { github, tree } from '../helpers.ts';
+import { github, lastModified, tree } from '../helpers.ts';
 
 export const PORT = 4174;
 const HANDBOOK_COMMIT = 'fedcba9876543210fedcba9876543210fedcba98';
@@ -63,6 +63,7 @@ const HANDBOOK: Recording = {
   [`${RAW}/.agents/skills/release/SKILL.md`]: { status: 200, body: RELEASE },
   [`${RAW}/.agents/skills/review/SKILL.md`]: { status: 200, body: REVIEW },
   [`${RAW}/.claude/skills/review/SKILL.md`]: { status: 200, body: REVIEW },
+  ...lastModified('JetBrains/handbook', HANDBOOK_COMMIT, { '.agents/skills/release': '2026-09-28T12:00:00Z', '.agents/skills/review': '2026-05-07T12:00:00Z' }),
   // A repository that does not exist.
   'https://api.github.com/repos/JetBrains/no-such-repository': { status: 404, body: { message: 'Not Found' } },
 };

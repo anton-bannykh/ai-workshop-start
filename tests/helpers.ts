@@ -12,6 +12,26 @@ export const CLI = fileURLToPath(new URL('../src/cli.ts', import.meta.url));
 /** The commit GitHub answers for JetBrains/example. */
 export const EXAMPLE_COMMIT = '5ab6270ab772d113e8ad52ebfcaa0109c522ae00';
 
+/**
+ * When a repository's skill directories were last modified, as GraphQL answers it at the commit: the
+ * directories sorted, 10 a query. A date of null: no commit changed it, as for a path not there.
+ */
+export function lastModified(id: string, commit: string, dates: Record<string, string | null>): Recording {
+  const [owner, name] = id.split('/');
+  const directories = Object.keys(dates).sort();
+  const recording: Recording = {};
+  for (let start = 0; start < directories.length; start += 10) {
+    const batch = directories.slice(start, start + 10);
+    const paths = Object.fromEntries(batch.map((path, index) => [`path${index}`, path]));
+    const histories = Object.fromEntries(batch.map((path, index) => [`path${index}`, { nodes: dates[path] ? [{ committedDate: dates[path] }] : [] }]));
+    recording[graphql({ owner, name, commit, ...paths })] = { status: 200, body: { data: { repository: { object: histories } } } };
+  }
+  return recording;
+}
+
+/** When JetBrains/example's skill was last modified: the 14th of March, 2026. */
+export const EXAMPLE_MODIFIED = '2026-03-14T12:26:53Z';
+
 /** What GitHub answers for a small repository, JetBrains/example, with one skill; its skill roots are listed at its commit. */
 const EXAMPLE: Recording = {
   'https://api.github.com/repos/JetBrains/example': { status: 200, body: { full_name: 'JetBrains/example', default_branch: 'main' } },
@@ -24,6 +44,7 @@ const EXAMPLE: Recording = {
     status: 200,
     body: '---\nname: commits\ndescription: Write commit messages the way this repository does. Use for every commit.\n---\n# Commits\n',
   },
+  ...lastModified('JetBrains/example', EXAMPLE_COMMIT, { '.claude/skills/commits': EXAMPLE_MODIFIED }),
 };
 
 /** The commits GitHub answers for JetBrains/tools and JetBrains/secret. */
@@ -122,6 +143,8 @@ const ORGANIZATION: Recording = {
     status: 200,
     body: '---\nname: build\ndescription: [unclosed\n---\n',
   },
+  ...lastModified('JetBrains/tools', TOOLS_COMMIT, { '.agents/skills/lint': '2025-12-31T12:00:00Z', '.github/skills/build': '2026-01-05T12:00:00Z' }),
+  ...lastModified('JetBrains/secret', SECRET_COMMIT, { '.agents/skills/deploy': '2026-02-28T12:00:00Z' }),
 };
 
 /** JetBrains/secret's SKILL.md, there only for a request with the token, as for a private repository. */

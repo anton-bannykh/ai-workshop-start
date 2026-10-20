@@ -6,11 +6,17 @@ Every `SKILL.md`: **name**, **description**, **link**
 Make the path part of the link bold
 ## Architecture
 Core: fetch → find → parse. CLI and web view: *thin clients*.
-Skill: id = `repo:path`, name, description, commit, text (the SKILL.md), warnings (its own)
+Skill: id = `repo:path`, name, description, commit, text (the SKILL.md), modified, warnings (its own)
 ## Details
 - **GitHub API**, no clone; *under 5 s* for intellij-community
 - The name: front matter, else the directory
 - The link pins the *scanned commit*
+- **Modified**: when the skill was last modified, the date of the *last commit that changed its directory*, up to the
+  scanned commit; a local directory: its newest file's modification time
+  - With `GITHUB_TOKEN` only: GraphQL, 10 directories a query, all at once; without it, no date (a request each
+    would spend the 60 an hour)
+  - A directory no commit changed: no date; the dates cannot be asked for → a *warning*, the repository's; the
+    scan goes on
 - Only the skill roots, *at the scanned commit*; without `GITHUB_TOKEN`, the whole tree when it fits in one answer
 - Malformed front matter → a *warning*, the skill's own; the scan goes on
 - A SKILL.md that cannot be read → still listed, by its *directory name*, with a warning that says why
