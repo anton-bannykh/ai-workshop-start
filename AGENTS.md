@@ -6,7 +6,8 @@ Integration tests for every case in the spec.
 ## Workflow
 - Work until the task is completed; don't stop halfway
 - Double-check everything: re-read the diff against the spec, run the tests
-- When done, open a PR
+- When done, open a PR against this fork, `origin`, never the repository it was forked from:
+  `gh pr create --repo anton-bannykh/ai-workshop-start` (without `--repo`, `gh` may pick the parent)
 ## Definition of done
 - All tests pass locally
 
