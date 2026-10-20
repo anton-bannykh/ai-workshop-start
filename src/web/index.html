@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Skill Atlas</title>
+<style>
+  :root { color-scheme: light dark; --muted: #6b7280; --line: #d1d5db; --accent: #2563eb; --warn: #b45309; --error: #b91c1c; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.5 system-ui, sans-serif; }
+  header { padding: 16px 24px; border-bottom: 1px solid var(--line); }
+  h1 { margin: 0 0 12px; font-size: 20px; }
+  form { display: flex; gap: 8px; max-width: 900px; }
+  input { flex: 1; padding: 8px 10px; font: inherit; border: 1px solid var(--line); border-radius: 6px; }
+  button { padding: 8px 16px; font: inherit; border: 0; border-radius: 6px; background: var(--accent); color: white; cursor: pointer; }
+  button:disabled { opacity: .6; cursor: progress; }
+  main { display: grid; grid-template-columns: minmax(280px, 420px) 1fr; min-height: calc(100vh - 110px); }
+  #list { border-right: 1px solid var(--line); overflow: auto; }
+  #summary, #messages { padding: 12px 16px; }
+  #summary { font-weight: 600; }
+  #messages p { margin: 4px 0; }
+  .warning { color: var(--warn); }
+  .error { color: var(--error); }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li { padding: 10px 16px; border-top: 1px solid var(--line); cursor: pointer; }
+  li:hover, li:focus { background: color-mix(in srgb, var(--accent) 8%, transparent); outline: none; }
+  li[aria-selected="true"] { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+  .name { font-weight: 600; }
+  .description, .copies { color: var(--muted); font-size: 13px; }
+  .link { display: block; font-size: 12px; word-break: break-all; color: var(--accent); }
+  #skill { padding: 16px 24px; overflow: auto; }
+  #skill h2 { margin: 0 0 8px; font-size: 18px; }
+  pre { white-space: pre-wrap; word-break: break-word; padding: 16px; border: 1px solid var(--line); border-radius: 6px;
+        font: 13px/1.5 ui-monospace, monospace; }
+  .empty { color: var(--muted); }
+  .tabs { display: flex; gap: 4px; margin: 12px 0; }
+  .tabs button { background: transparent; color: inherit; border: 1px solid var(--line); padding: 4px 12px; }
+  .tabs button[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: white; }
+  .markdown { max-width: 900px; }
+  .markdown h1, .markdown h2, .markdown h3 { margin: 1.2em 0 .5em; line-height: 1.25; }
+  .markdown h1 { font-size: 1.6em; border-bottom: 1px solid var(--line); padding-bottom: .3em; }
+  .markdown h2 { font-size: 1.3em; border-bottom: 1px solid var(--line); padding-bottom: .3em; }
+  .markdown code { font: 13px ui-monospace, monospace; padding: .1em .35em; border-radius: 4px;
+                   background: color-mix(in srgb, currentColor 8%, transparent); }
+  .markdown pre code { padding: 0; background: none; }
+  .markdown pre { white-space: pre; overflow: auto; background: color-mix(in srgb, currentColor 4%, transparent); }
+  .markdown blockquote { margin: 0; padding: 0 1em; color: var(--muted); border-left: 4px solid var(--line); }
+  .markdown table { border-collapse: collapse; margin: 1em 0; }
+  .markdown th, .markdown td { border: 1px solid var(--line); padding: 6px 12px; text-align: left; vertical-align: top; }
+  .markdown img { max-width: 100%; }
+  .markdown a { color: var(--accent); }
+  .markdown .front-matter th { white-space: nowrap; color: var(--muted); font-weight: 500; }
+  .markdown div.front-matter pre { white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Skill Atlas</h1>
+  <form id="form">
+    <input id="repo" name="repo" type="text" required autofocus
+           placeholder="https://github.com/JetBrains/kotlin" aria-label="Repository link">
+    <button id="scan" type="submit">Scan</button>
+  </form>
+</header>
+<main>
+  <section id="list">
+    <div id="summary"></div>
+    <div id="messages"></div>
+    <ul id="skills"></ul>
+  </section>
+  <section id="skill"><p class="empty">Enter a repository link, then choose a skill to see its SKILL.md.</p></section>
+</main>
+<script type="module">
+  const $ = (id) => document.getElementById(id);
+  const element = (tag, props = {}, ...children) => {
+    const node = Object.assign(document.createElement(tag), props);
+    node.append(...children);
+    return node;
+  };
+  /** The link with its path part in bold, as the CLI prints it. */
+  const link = (skill) => element('a', { className: 'link', href: skill.link.base + skill.link.path, target: '_blank', rel: 'noopener' },
+    skill.link.base, element('b', {}, decodeURIComponent(skill.link.path)));
+
+  /** Formatted Markdown by default; the raw file on its own tab. */
+  let view = 'formatted';
+
+  function show(skill, item) {
+    for (const other of $('skills').children) other.setAttribute('aria-selected', String(other === item));
+    const formatted = element('div', { id: 'formatted', className: 'markdown', innerHTML: skill.html });
+    const raw = element('pre', { id: 'text' }, skill.text);
+    const tab = (name, label) => {
+      const button = element('button', { type: 'button', id: `tab-${name}` }, label);
+      button.addEventListener('click', () => { view = name; select(); });
+      return button;
+    };
+    const tabs = element('div', { className: 'tabs', role: 'tablist' }, tab('formatted', 'Formatted'), tab('raw', 'Raw'));
+    const select = () => {
+      formatted.hidden = view !== 'formatted';
+      raw.hidden = view !== 'raw';
+      for (const button of tabs.children) button.setAttribute('aria-selected', String(button.id === `tab-${view}`));
+    };
+    select();
+    $('skill').replaceChildren(element('h2', {}, skill.name), link(skill), tabs, formatted, raw);
+  }
+
+  function render({ repository, skills, warnings }) {
+    $('summary').textContent = `${repository.id} · ${skills.length} ${skills.length === 1 ? 'skill' : 'skills'}`;
+    $('messages').replaceChildren(...warnings.map((warning) => element('p', { className: 'warning' }, `warning: ${warning}`)));
+    $('skills').replaceChildren(...skills.map((skill) => {
+      const item = element('li', { tabIndex: 0 },
+        element('div', { className: 'name' }, skill.name),
+        skill.description ? element('div', { className: 'description' }, skill.description) : '',
+        link(skill),
+        skill.copies.length ? element('div', { className: 'copies' }, `also in ${skill.copies.join(', ')}`) : '');
+      item.addEventListener('click', (event) => { if (!event.target.closest('a')) show(skill, item); });
+      item.addEventListener('keydown', (event) => { if (event.key === 'Enter') show(skill, item); });
+      return item;
+    }));
+    $('skill').replaceChildren(element('p', { className: 'empty' }, skills.length ? 'Choose a skill to see its SKILL.md.' : 'No skills here.'));
+    if (skills.length) show(skills[0], $('skills').firstElementChild);
+  }
+
+  async function scan(repo) {
+    $('scan').disabled = true;
+    $('summary').textContent = 'Scanning…';
+    $('messages').replaceChildren();
+    $('skills').replaceChildren();
+    try {
+      const response = await fetch(`/api/scan?repo=${encodeURIComponent(repo)}`);
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error);
+      render(body);
+    } catch (error) {
+      $('summary').textContent = '';
+      $('messages').replaceChildren(element('p', { className: 'error' }, error.message));
+      $('skill').replaceChildren();
+    } finally {
+      $('scan').disabled = false;
+    }
+  }
+
+  $('form').addEventListener('submit', (event) => {
+    event.preventDefault();
+    const repo = $('repo').value.trim();
+    history.replaceState(null, '', `?repo=${encodeURIComponent(repo)}`);
+    scan(repo);
+  });
+  // A link to the page can name the repository: /?repo=<URL>.
+  const initial = new URLSearchParams(location.search).get('repo');
+  if (initial) { $('repo').value = initial; scan(initial); }
+</script>
+</body>
+</html>
