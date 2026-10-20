@@ -13,6 +13,8 @@
   "scripts": {
     "test": "node --test tests/*.test.ts",
     "test:e2e": "node --test tests/e2e/*.test.ts",
+    "demo": "node scripts/demo.ts",
+    "demo:publish": "node scripts/publish-demo.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -21,6 +23,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.19.0",
+    "playwright": "1.63.0",
     "typescript": "^7.0.2"
   }
 }
