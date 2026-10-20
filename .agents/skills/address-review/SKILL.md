@@ -61,13 +61,15 @@ If nothing is left after filtering, say so, list what was ignored and why, and s
 
 ## Reply
 
-On each request you addressed, reply briefly: what changed and the commit. An inline thread:
-`gh api repos/anton-bannykh/ai-workshop-start/pulls/<number>/comments/<databaseId>/replies -f body='…'`;
-a review or a conversation comment: `gh pr comment <number> --repo anton-bannykh/ai-workshop-start --body '…'`.
-Leave resolving threads to the reviewer.
+Say briefly, for each request you addressed, what changed and the commit:
 
-Then record a demo of the change with the [record-demo](../record-demo/SKILL.md) skill and post it in a PR
-comment: what the reviewers asked for, working.
+- **An inline thread:** a reply in the thread, text only:
+  `gh api repos/anton-bannykh/ai-workshop-start/pulls/<number>/comments/<databaseId>/replies -f body='…'`.
+- **Reviews and conversation comments:** all in **one** PR comment for the push, which ends with a demo of what
+  the reviewers asked for, working, as [record-demo](../record-demo/SKILL.md#attach-it-to-the-pr) says:
+  `gh pr comment <number> --repo anton-bannykh/ai-workshop-start --body-file …`.
+
+Leave resolving threads to the reviewer.
 
 ## Report
 

@@ -66,7 +66,10 @@ It uploads to the `demos` branch of `origin`, your fork, and prints the Markdown
 
 - **Creating a PR:** open it, publish with its number, then add a `## Demo` section to the description with
   the Markdown and one line on what it shows: `gh pr edit <number> --repo anton-bannykh/ai-workshop-start --body-file …`.
-- **Any later push:** record again, publish, and post the Markdown in a PR comment, with what changed since the
-  last demo; also in the replies of `address-review`. Leave the description's demo as it was.
+- **Any later push:** record again, publish, and post the Markdown in **one** PR comment for the push, with
+  what changed since the last demo. Leave the description's demo as it was.
+- **A push that addresses review** (`address-review`): that one comment is also the reply to the review and
+  conversation comments it addresses: what changed for each, then the demo of it working. Replies in inline
+  threads stay text only, without the demo.
 
 Never commit the recordings to the PR's branch: `.demo/` is ignored.
