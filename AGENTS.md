@@ -19,5 +19,6 @@ A screenshot for each key moment of the web view, in `tests/visual/` (the [visua
 - `npm ci`: first, in a fresh checkout
 - `npm test`: the tests
 - `npm run test:visual`: the web view's screenshots, in Docker on macOS and Linux alike; `npm run test:visual:update` makes them anew
+- `npm run screenshots:diff -- [--base <ref>] [--pr <n>]`: the changed screenshots, before and after, differences boxed in red, for the PR
 - `npm run demo -- [scenario]`, `npm run demo:publish -- --pr <n> <files>`: record a demo, attach it to a PR
 - `npm run test:e2e`: end to end, the CLI against live GitHub (JetBrains/kotlin, MPS, intellij-community); needs `GITHUB_TOKEN`, e.g. `GITHUB_TOKEN=$(gh auth token)`
