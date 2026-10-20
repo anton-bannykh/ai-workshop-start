@@ -1,5 +1,5 @@
 ---
-name: code-review
+name: review
 description: Short, common-sense code review of the current changes (or a given PR, branch, or path) — what the change does, its pros and cons, and concrete suggestions. Use when asked to review code, a diff, or a PR in this repository.
 ---
 
