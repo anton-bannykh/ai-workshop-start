@@ -48,6 +48,25 @@ test('the page: a field for a repository link, the list of skills and a place fo
   assert.equal((await get('/?repo=github.com/JetBrains/example')).text, page.text);
 });
 
+test('Tab in the field completes the sample link while the field is empty or its start; otherwise Tab moves on', async () => {
+  const page = (await get('/')).text;
+  const sample = /<input id="repo"[^>]*placeholder="([^"]*)"/.exec(page)?.[1];
+  assert.equal(sample, 'https://github.com/JetBrains/kotlin');
+  const source = /const completion = (\([^)]*\) => .*);\n/.exec(page)?.[1];
+  assert.ok(source, 'completion() is on the page');
+  const completion = new Function(`return ${source}`)() as (value: string, sample: string) => string | null;
+  assert.equal(completion('', sample), sample);
+  assert.equal(completion('https://gi', sample), sample);
+  assert.equal(completion(sample, sample), null);
+  assert.equal(completion('https://github.com/JetBrains/MPS', sample), null);
+  assert.equal(completion('/some/directory', sample), null);
+  // Only a plain Tab completes, and only when there is something to complete; the field keeps the cursor at the end.
+  assert.match(page, /\$\('repo'\)\.addEventListener\('keydown'/);
+  assert.match(page, /event\.key !== 'Tab' \|\| event\.shiftKey/);
+  assert.match(page, /if \(completed === null\) return;/);
+  assert.match(page, /event\.preventDefault\(\);\n\s*\$\('repo'\)\.value = completed;/);
+});
+
 test('a GitHub repository: its skills with name, description, pinned link and their SKILL.md', async () => {
   const { status, body } = await scanned('https://github.com/JetBrains/example');
   assert.equal(status, 200);

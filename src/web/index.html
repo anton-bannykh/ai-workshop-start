@@ -142,6 +142,17 @@
     }
   }
 
+  /** What Tab completes the field to: the sample link, while the field is empty or the start of it. */
+  const completion = (value, sample) => (sample.startsWith(value) && value !== sample ? sample : null);
+  $('repo').addEventListener('keydown', (event) => {
+    if (event.key !== 'Tab' || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return;
+    const completed = completion($('repo').value, $('repo').placeholder);
+    if (completed === null) return; // Nothing to complete: Tab moves on as usual.
+    event.preventDefault();
+    $('repo').value = completed;
+    $('repo').setSelectionRange(completed.length, completed.length);
+  });
+
   $('form').addEventListener('submit', (event) => {
     event.preventDefault();
     const repo = $('repo').value.trim();

@@ -4,6 +4,7 @@ Port 4173 by default; `0` picks a free one. The address is printed.
 Listens on *127.0.0.1* only; *nothing is stored*.
 ## Page
 - A **field** for a repository link (or a directory, as in `scan`)
+- **Tab** in the field completes the sample link, while the field is empty or its start; otherwise Tab moves on
 - The repository: `<id> · N skills`
 - Each skill: **name**, description, link (path in **bold**), `also in` copies
 - Choosing a skill shows **its SKILL.md**, *formatted*: the front matter as a table, the Markdown rendered
