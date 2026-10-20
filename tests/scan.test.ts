@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { test } from 'node:test';
 import { openGitHub } from '../src/core/github.ts';
+import { findSkills } from '../src/core/find.ts';
 import { parseSkill } from '../src/core/parse.ts';
 import { replay } from '../src/core/replay.ts';
 import { bold } from '../src/commands.ts';
@@ -29,6 +30,8 @@ test('malformed front matter → the directory name, no description and a warnin
 
 test('scan prints the repository, then each skill with its first sentence and pinned link', () => {
   assert.equal(example.code, 0, example.stderr);
+  // docs/SKILL.md, also found, is not a skill: it is not read, so nothing is missing.
+  assert.equal(example.stderr, '');
   assert.equal(
     example.stdout,
     [
@@ -57,11 +60,39 @@ test('./fixture: every skill, sorted by name, linked to its file, with a warning
       `  ${root}/${bold('.github/skills/code-style/SKILL.md')}`,
       'commits — Write commit messages the way this repository does.',
       `  ${root}/${bold('.claude/skills/commits/SKILL.md')}`,
+      '  also in agent/skills/commits/SKILL.md',
       'release-checklist',
       `  ${root}/${bold('.agents/skills/release-checklist/SKILL.md')}`,
     ].join('\n'),
   );
   assert.match(fixture.stderr, /^warning: \.agents\/skills\/release-checklist\/SKILL\.md: malformed front matter: /);
+});
+
+test('a project skill: <root>/<name>/SKILL.md; the same name in two roots is one skill', () => {
+  assert.deepEqual(
+    findSkills([
+      'SKILL.md',
+      'docs/skills/notes/SKILL.md',
+      'skills/notes/SKILL.md',
+      '.claude/skills/SKILL.md',
+      '.claude/skills/nested/deeper/SKILL.md',
+      '.claude/skills/lowercase/skill.md',
+      '.claude/skills/commits/README.md',
+      'agent/skills/commits/SKILL.md',
+      '.github/skills/commits/SKILL.md',
+      '.claude/skills/commits/SKILL.md',
+      '.agents/skills/release-checklist/SKILL.md',
+      'src/.claude/skills/commits/SKILL.md',
+    ]),
+    [
+      {
+        path: '.claude/skills/commits/SKILL.md',
+        name: 'commits',
+        copies: ['.github/skills/commits/SKILL.md', 'agent/skills/commits/SKILL.md'],
+      },
+      { path: '.agents/skills/release-checklist/SKILL.md', name: 'release-checklist', copies: [] },
+    ],
+  );
 });
 
 test('the CLI prints the result at once and stores nothing', (t) => {
