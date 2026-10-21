@@ -1,6 +1,6 @@
 ---
 name: issue-to-pr
-description: Fix the bug a GitHub issue describes — find the root cause, reproduce it in a test, fix it, verify, and open a PR that references the issue; if it can't be fixed, post the investigation on the issue. Use when asked to fix, resolve, or work on an issue (a number or a link) in this repository.
+description: Fix the bug a GitHub issue describes — find the root cause, reproduce it in a test, fix it, verify, open a PR that references the issue, and review it, keeping a Slack channel posted; if it can't be fixed, post the investigation on the issue. Use when asked to fix, resolve, or work on an issue (a number or a link) in this repository.
 ---
 
 # Issue to PR
@@ -13,33 +13,49 @@ on the issue that the next person can start from.
 - An issue number or link, as given.
 - Read it all, the conversation too: `gh issue view <number> --repo anton-bannykh/ai-workshop-start --comments`.
   Note what is reported: the steps, what was expected, what happened, the version or environment.
-- If it isn't a bug (a feature request, a question) or is too vague to reproduce, [ask](#ask-in-slack) before
+- If it isn't a bug (a feature request, a question) or is too vague to reproduce, [ask](#ask) before
   going on.
 
 ## Before you start
 
 Mark that you started working - put an eyes emoji on the issue:
-`gh api repos/anton-bannykh/ai-workshop-start/issues/<number>/reactions -f content=eyes`.
+`gh api repos/anton-bannykh/ai-workshop-start/issues/<number>/reactions -f content=eyes`,
+and [notify](#notify) the channel.
 
 Branch off a current `main`: `git switch main && git pull && git switch -c fix/<number>-<short-slug>`.
 
-## Ask in Slack
+## Slack
 
-When the issue leaves a decision open, or you need something clarified — at any step — ask in the Slack channel
-`C0CAS41KRD3`, wait, take the replies into account, and go on.
+The channel `C0CAS41KRD3` hears about the job as it goes, and is where you ask. The bot token is in
+`SLACK_BOT_TOKEN`; don't print it. To post a message, and keep its `ts` for reading the replies:
+
+```sh
+slack_post() {
+  jq -n --arg text "$1" '{channel: "C0CAS41KRD3", text: $text}' |
+    curl -s -X POST https://slack.com/api/chat.postMessage \
+      -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H 'Content-Type: application/json; charset=utf-8' -d @- |
+    jq -r 'if .ok then .ts else "Slack: \(.error)\n" | halt_error end'
+}
+```
+
+If Slack answers `"ok": false`, `slack_post` prints the error and fails: say so in the report, and go on without it.
+
+### Notify
+
+- **Starting:** when you start on the issue: its link and title, and that you're on it.
+- **Done:** when the PR is open and CI is green: the PR's link and a sentence on the root cause and the fix.
+  If you couldn't fix it: the link to the issue comment with the investigation, and what would unblock it.
+- **Reviewed:** when the [review](#6-review-it) is done: a summary — the verdict and the main points, a few
+  lines — and the link to the full review on the PR.
+
+### Ask
+
+When the issue leaves a decision open, or you need something clarified — at any step — ask in the channel, wait,
+take the replies into account, and go on.
 
 1. Collect your questions into one message: the issue's link, then each question numbered, with the options you
-   see and the one you would pick. Ask only what changes what you do.
-2. Post it. The bot token is in `SLACK_BOT_TOKEN`; don't print it.
-
-   ```sh
-   ts=$(jq -n --arg text "$message" '{channel: "C0CAS41KRD3", text: $text}' |
-     curl -s -X POST https://slack.com/api/chat.postMessage \
-       -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H 'Content-Type: application/json; charset=utf-8' -d @- |
-     jq -er .ts)
-   ```
-
-3. Wait for replies in the message's thread for **at least 10 minutes**, even if a first reply comes sooner
+   see and the one you would pick. Ask only what changes what you do. Post it: `ts=$(slack_post "$message")`.
+2. Wait for replies in the message's thread for **at least 10 minutes**, even if a first reply comes sooner
    (someone else may add to it or disagree); longer while a discussion is still going. Check once a minute:
 
    ```sh
@@ -48,9 +64,7 @@ When the issue leaves a decision open, or you need something clarified — at an
      jq -r '.messages[1:][] | "\(.user): \(.text)"'
    ```
 
-   If `chat.postMessage` or `conversations.replies` returns `"ok": false`, say so in the report with the error,
-   and go on as below without waiting.
-4. Take the answers into account. A question nobody answered: go on with the option you proposed, and say so —
+3. Take the answers into account. A question nobody answered: go on with the option you proposed, and say so —
    in the PR description's **Uncertainty**, or in the issue comment.
 
 ## 1. Find the root cause
@@ -107,11 +121,21 @@ When the issue leaves a decision open, or you need something clarified — at an
    - The screenshots that changed ([visual-tests](../visual-tests/SKILL.md#in-the-pr)), and a demo, as
      [record-demo](../record-demo/SKILL.md) says, when the web view is involved.
 3. Wait for CI: `gh pr checks <number> --repo anton-bannykh/ai-workshop-start --watch`. It must be green.
+4. [Notify](#notify) the channel that it's done.
+
+## 6. Review it
+
+1. Review the PR with the [review](../review/SKILL.md) skill.
+2. Post the full review as a PR comment, and keep its link:
+   `gh pr comment <number> --repo anton-bannykh/ai-workshop-start --body-file …` prints it.
+3. [Notify](#notify) the channel: the summary, and the link.
+
+Fix nothing the review found on your own: it's for the reviewers to weigh, with the PR.
 
 ## If you can't fix it
 
 Can't reproduce it, can't find the cause, or the fix needs a decision that isn't yours (a change to the spec,
-a breaking change) — and [asking](#ask-in-slack) didn't settle it: don't open a PR with a guess. Post the
+a breaking change) — and [asking](#ask) didn't settle it: don't open a PR with a guess. Post the
 investigation on the issue instead:
 
 - what you tried, and what happened;
@@ -120,9 +144,10 @@ investigation on the issue instead:
 - what would unblock it: a missing detail from the reporter, a decision, an environment.
 
 A failing test that reproduces the bug is worth keeping even without a fix: push it to a branch and link it.
+Then [notify](#notify) the channel.
 
 ## Report
 
 To the user: the issue and the PR (or the issue comment) with links; the root cause in a sentence or two, and how
-it differs from the report, if it does; what you asked in Slack and the answers; what ran and what didn't; and what
+it differs from the report, if it does; what you asked in Slack and the answers; the review's verdict; what ran and what didn't; and what
 you're still unsure of.
