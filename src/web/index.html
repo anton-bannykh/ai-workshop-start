@@ -442,7 +442,20 @@
       element('h2', {}, group.words.join(' · ')),
       element('div', { className: 'count' }, `${count(group.skills.length, 'skill', 'skills')} · ${count(shared, 'line', 'lines')} in all of them`),
       tabs, sideBySide, two);
-    columns.querySelectorAll('.wanted')[0]?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+    // The skill's column, brought in sideways; its group, in the list. Not scrollIntoView: it scrolls the group's
+    // pane too, its words, count and tabs out of view, the column being taller than the pane.
+    reveal(columns, columns.querySelector('.wanted'), 'x');
+    reveal($('groups-list'), item, 'y');
+  }
+
+  /** Scrolls `pane` along one axis, and nothing else, just enough to show `target` in it, as its start fits. */
+  function reveal(pane, target, axis) {
+    if (!target || target.hidden) return;
+    const [start, end, size, scroll] = axis === 'x' ? ['left', 'right', 'clientWidth', 'scrollLeft'] : ['top', 'bottom', 'clientHeight', 'scrollTop'];
+    const outer = pane.getBoundingClientRect(), inner = target.getBoundingClientRect();
+    const before = inner[start] - outer[start], after = inner[end] - outer[start] - pane[size];
+    if (before < 0) pane[scroll] += before;
+    else if (after > 0) pane[scroll] += Math.min(before, after);
   }
 
   /** Whether the filter keeps a group: one of its skills' names contains the filter, ignoring case and the spaces around it. */

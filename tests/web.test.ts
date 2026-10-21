@@ -92,6 +92,13 @@ class FakeElement {
   setAttribute() {}
   setSelectionRange() {}
   get firstElementChild() { return this.children[0]; }
+  // No layout: nothing to scroll into view.
+  scrollLeft = 0;
+  scrollTop = 0;
+  clientWidth = 0;
+  clientHeight = 0;
+  getBoundingClientRect() { return { top: 0, right: 0, bottom: 0, left: 0 }; }
+  querySelector(selector: string) { return this.querySelectorAll(selector)[0] ?? null; }
   /** The descendants with a tag, or with a class as `.<class>` selects them. */
   querySelectorAll(selector: string): FakeElement[] {
     const elements = this.children.filter((child): child is FakeElement => typeof child !== 'string');

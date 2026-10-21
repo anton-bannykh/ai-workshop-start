@@ -53,7 +53,8 @@ same in them and what is not
   - Lines compared *trimmed*; a blank line is in all; the counts leave out the lines without a letter or a digit,
     a blank line, the front matter's `---`
 - **Similar skills →**, or `/?repo=<link>&view=groups&skill=<id>`: the first group of that skill chosen, the skill marked in the list and in its column,
-  and first in **Compare two**; a skill in no group → `No other skill here shares a word of its name with <path>.`
+  and first in **Compare two**; in view, however small the window: the group in the list, the skill's column, and the
+  group's words, count and tabs, as for any chosen group; a skill in no group → `No other skill here shares a word of its name with <path>.`
 - No two skills share a word → `No two skills here share a word of their names.`
 - Warnings, all of them, each naming its SKILL.md (and its repository), in a *collapsed* group: `❗ N warnings`;
   errors as for the skills
