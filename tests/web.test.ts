@@ -85,6 +85,7 @@ class FakeElement {
   textContent = '';
   title = '';
   href = '';
+  scrollTop = 0;
   listeners: Record<string, ((event: object) => void)[]> = {};
   append(...nodes: (FakeElement | string)[]) { this.children.push(...nodes.filter((node) => node !== '')); }
   replaceChildren(...nodes: (FakeElement | string)[]) { this.children = []; this.append(...nodes); }
@@ -864,6 +865,35 @@ test('Skills / Groups: two views of the one scan; switching keeps the field, the
   assert.equal($('group').children, group);
   assert.equal(byId($('group'), 'two')!.hidden, false);
   assert.equal(scans(), 1);
+});
+
+// https://github.com/anton-bannykh/ai-workshop-start/issues/56
+test('another skill or group chosen opens at its top; the same one again, and Skills / Groups, keep where it was', async () => {
+  const { $, items } = await openGroups('https://github.com/Team', '');
+  const [, web] = $('skills').querySelectorAll('details');
+  web.open = true;
+  const [first, second] = $('skills').querySelectorAll('.skill');
+  choose($, first);
+  // Scrolled down the SKILL.md, then another skill: its name, link and tabs in sight.
+  $('skill').scrollTop = 3000;
+  choose($, first);
+  assert.equal($('skill').scrollTop, 3000);
+  choose($, second);
+  assert.equal($('skill').scrollTop, 0);
+  // To the groups and back: each view as it was left.
+  $('skill').scrollTop = 1200;
+  click($('to-groups'));
+  $('group').scrollTop = 2000;
+  click($('to-skills'));
+  assert.equal($('skill').scrollTop, 1200);
+  click($('to-groups'));
+  assert.equal($('group').scrollTop, 2000);
+  // The same group again keeps it; another opens at its words, its count and its tabs.
+  for (const listener of items()[0].listeners.click) listener({});
+  assert.equal($('group').scrollTop, 2000);
+  for (const listener of items()[1].listeners.click) listener({});
+  assert.equal($('group').scrollTop, 0);
+  assert.equal(text(($('group').children as FakeElement[])[0]), 'review');
 });
 
 test('Similar skills →: the groups, in the page, that skill\'s first group chosen and it marked; no new scan', async () => {
