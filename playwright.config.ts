@@ -1,7 +1,7 @@
 // The visual tests: the web view's key moments, screenshotted and compared with tests/visual/screenshots.
 // Screenshots depend on fonts and the platform, so they are made in one place only, the Playwright image
-// on linux/amd64, or the system it is built on, Ubuntu 24.04 on x86_64: `npm run test:visual` picks the one
-// it can, locally and in CI.
+// on linux/amd64, or a Linux that renders as it does (Ubuntu 24.04 on x86_64, its own system):
+// `npm run test:visual` picks the one it can, locally and in CI.
 import { defineConfig } from '@playwright/test';
 import { PORT } from './tests/visual/server.ts';
 
