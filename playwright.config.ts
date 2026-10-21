@@ -1,11 +1,12 @@
 // The visual tests: the web view's key moments, screenshotted and compared with tests/visual/screenshots.
 // Screenshots depend on fonts and the platform, so they are made in one place only, the Playwright image
-// on linux/amd64: `npm run test:visual` locally (Docker), and CI.
+// on linux/amd64, or the system it is built on, Ubuntu 24.04 on x86_64: `npm run test:visual` picks the one
+// it can, locally and in CI.
 import { defineConfig } from '@playwright/test';
 import { PORT } from './tests/visual/server.ts';
 
 if (!process.env.SKILL_ATLAS_VISUAL) {
-  throw new Error('Run the visual tests with `npm run test:visual` (Docker), not `npx playwright test`: screenshots made here would not match.');
+  throw new Error('Run the visual tests with `npm run test:visual`, not `npx playwright test`: screenshots made here would not match.');
 }
 
 export default defineConfig({

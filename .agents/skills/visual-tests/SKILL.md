@@ -10,13 +10,20 @@ the filter, an organization, warnings, errors. Each screenshot is a PNG in `test
 in git. A test fails if a single pixel differs. GitHub answers from recordings (`tests/visual/server.ts`),
 so the pages are the same on every run, and a changed screenshot means the page changed.
 
-The screenshots are made in one place only, the Playwright Docker image on linux/amd64, on every machine
-(macOS, Linux and CI). Fonts and rendering differ elsewhere, even on another Linux. Never run
-`npx playwright test` directly: the config refuses.
+The screenshots are made in one place only, the Playwright Docker image on linux/amd64, or the system it is
+built on, Ubuntu 24.04 on x86_64: the same Chromium, fonts and rendering, pixel for pixel. Fonts and rendering
+differ elsewhere, even on another Linux. Never run `npx playwright test` directly: the config refuses.
+
+## Where they run
+
+`npm run test:visual` picks the place itself. If something is missing, it says what to run and stops.
+
+- **Ubuntu 24.04 on x86_64** (CI, a Linux VM): natively, without Docker. After `npm ci`, once:
+  `sudo npx playwright install-deps chromium` (the libraries and fonts Chromium needs). It installs Chromium
+  itself. To use Docker anyway: `SKILL_ATLAS_VISUAL_DOCKER=1 npm run test:visual`.
+- **Anywhere else:** in Docker, as below.
 
 ## Docker
-
-`npm run test:visual` needs Docker. If something is missing, it says what to run and stops.
 
 - **macOS:** Docker Desktop, started: `open -a Docker`. It runs the amd64 image on Apple silicon too.
 - **Linux:** the Docker engine, started (`sudo systemctl start docker`), and you in the `docker` group
@@ -24,7 +31,7 @@ The screenshots are made in one place only, the Playwright Docker image on linux
   - The tests run as you, so the screenshots they write are yours, not root's.
   - On an ARM machine, install the amd64 emulator once:
     `docker run --privileged --rm tonistiigi/binfmt --install amd64`.
-- **CI:** the `visual` job runs the same `npm run test:visual` on a Linux runner.
+- **CI:** the `visual` job runs the same `npm run test:visual`, natively, on an Ubuntu 24.04 runner.
 
 The first run downloads the image, about 1 GB. Under emulation (Apple silicon, ARM Linux), a run takes
 about 30 s.
