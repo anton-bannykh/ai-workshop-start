@@ -72,3 +72,5 @@ then `{ result }`, the same JSON; or `{ status, error }`. The page asks this way
 - Malformed front matter → shown as it is; its warning, the skill's, above it
 - A clear message → `400 { error }`; unknown paths → `404`; not `GET` → `405`
 - Another `Host` than the local address → `403`
+- The request's target is a path, even one starting with `//` (`//a:b/` → `404`); one that is no path and no URL → `400`
+  Nothing a request sends stops the server
