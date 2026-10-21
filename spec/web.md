@@ -14,7 +14,8 @@ Listens on *127.0.0.1* only; *nothing is stored*.
   **path**, in grey, `SKILL.md` in **bold**, a link to it; the whole of each on hover; the whole link when chosen
 - When it was last modified, in *grey*, out of the way: `DD-MM-YY`, local time; on the right of its name, and under
   its link when chosen (`Last modified DD-MM-YY`); no date known → nothing
-- Choosing a skill shows **its SKILL.md**, *formatted*: the front matter as a table, the Markdown rendered
+- Choosing a skill shows **its SKILL.md**, *formatted*: the front matter as a table, the Markdown rendered;
+  another skill *from its top*, wherever the last one was scrolled to; the same one again stays where it was
 - A **Raw** tab: the SKILL.md as it is in the file
 - An organization: `<owner> · N skills in M repositories · S scanned`; each repository a **group** with its heading,
   `<id> · N skills`, *collapsed* until opened; **Expand all** / **Collapse all**;
@@ -45,7 +46,8 @@ same in them and what is not
 - The summary: `<id> · N groups · M skills`, an organization's `· S scanned`; while scanning, as for the skills
 - Each group in the list: its words, `N skills`, its skills' names with the shared words *marked*
 - The **filter**, the same one: only the groups with a skill whose **name** contains it, ignoring case; `2 of 5 groups`
-- The first group chosen. A chosen group: its words, `N skills · K lines in all of them`, and two tabs:
+- The first group chosen. A chosen group: its words, `N skills · K lines in all of them`, and two tabs; another group
+  *from its top*, as another skill:
   - **Side by side**: a column for each skill, with its name, repository, description and link, then its SKILL.md
     line by line: in *all* of them in grey, in *some* plain, *only in this one* marked
   - **Compare two**: two of them, the first two at first, any two chosen; a line diff, the lines the same in grey,

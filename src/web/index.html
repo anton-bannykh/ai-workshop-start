@@ -193,6 +193,7 @@
 
   /** The skill's SKILL.md, its warnings above it. */
   function show(skill, item) {
+    const another = skill !== chosen;
     chosen = skill;
     for (const other of $('skills').querySelectorAll('.skill')) other.setAttribute('aria-selected', String(other === item));
     const formatted = element('div', { id: 'formatted', className: 'markdown', innerHTML: skill.html });
@@ -218,6 +219,8 @@
       similarTo(skill.id);
     });
     $('skill').replaceChildren(element('h2', {}, skill.name), link(skill), date && element('div', {}, date), similar, ...skill.warnings.map(warning), tabs, formatted, raw);
+    // Another skill is another document: from its top, its name, link and tabs; the same one again stays where it was.
+    if (another) $('skill').scrollTop = 0;
   }
 
   const count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
@@ -384,9 +387,13 @@
 
   /** Side by side by default; two of them compared on their own tab. */
   let groupView = 'columns';
+  /** The group shown, if one is. */
+  let shownGroup = null;
 
   /** The group: each skill in its own column, what all of them share in grey, what is only its own marked; or two compared. */
   function showGroup(group, item) {
+    const another = group !== shownGroup;
+    shownGroup = group;
     for (const other of $('groups').querySelectorAll('.group')) other.setAttribute('aria-selected', String(other === item));
     const shared = group.skills[0].lines.filter((line) => line.kind === 'all' && says(line.text)).length;
     const columns = element('div', { id: 'columns' }, ...group.skills.map((skill) => element('div', { className: skill.id === wanted ? 'column wanted' : 'column' },
@@ -442,6 +449,8 @@
       element('h2', {}, group.words.join(' · ')),
       element('div', { className: 'count' }, `${count(group.skills.length, 'skill', 'skills')} · ${count(shared, 'line', 'lines')} in all of them`),
       tabs, sideBySide, two);
+    // Another group, as another skill: from its top, its words, its count and its tabs.
+    if (another) $('group').scrollTop = 0;
     columns.querySelectorAll('.wanted')[0]?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
   }
 
