@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
-import { request } from 'node:http';
+import { createServer, request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -105,9 +105,9 @@ class FakeElement {
 
 /**
  * Runs the page's script on a fake document, with `/?repo=<repo><query>` and the API answered by the
- * web view at `at`.
+ * web view at `at`; once its scan is done, unless `wait` is false: then `done` waits for it.
  */
-async function openPage(repo: string, at = address, query = '') {
+async function openPage(repo: string, at = address, query = '', wait = true) {
   const page = (await get('/')).text;
   const script = /<script type="module">([\s\S]*?)<\/script>/.exec(page)?.[1] ?? '';
   const elements = new Map<string, FakeElement>();
@@ -143,7 +143,7 @@ async function openPage(repo: string, at = address, query = '') {
     await scanned;
     while ($('scan').disabled || $('summary').textContent === 'Scanning…') await new Promise(setImmediate);
   };
-  await done();
+  if (wait) await done();
   /** The names of the skills listed, and the names shown by the filter. */
   const listed = () => {
     const items = $('skills').children as FakeElement[];
@@ -153,7 +153,7 @@ async function openPage(repo: string, at = address, query = '') {
   const rescan = async () => { $('form').dispatch('submit'); await done(); };
   /** What the address says is shown. */
   const url = () => shownAt;
-  return { page, $, listed, type, rescan, scans: () => scans, url, chosen: () => ($('skill').children[0] as FakeElement).children[0] };
+  return { page, $, listed, type, rescan, done, scans: () => scans, url, chosen: () => ($('skill').children[0] as FakeElement).children[0] };
 }
 
 test('a filter on the top right: as you type, only the skills whose name contains it, ignoring case; no new scan', async () => {
@@ -297,8 +297,75 @@ test('while an organization is scanned, the page shows how far it is', async () 
   Object.defineProperty($('summary'), 'textContent', { get: () => text, set: (value: string) => { text = value; summaries.push(value); } });
   await rescan();
   assert.equal(summaries[0], 'Scanning…');
-  assert.match(summaries[1], /^Scanning… 0 of 3 repositories, 0 skills so far$/);
+  assert.match(summaries[1], /^Scanning… 0 of 6 repositories, 0 skills so far$/);
   assert.deepEqual(summaries.slice(-2), ['Scanning… 6 of 6 repositories, 4 skills so far', 'JetBrains · 4 skills in 3 repositories · 6 scanned']);
+});
+
+// The web view's page, and its scan held back halfway: its lines up to the second repository, the rest once let go.
+let letGo = () => {};
+const halfway = createServer(async (request, response) => {
+  const answer = await fetch(new URL(request.url ?? '/', address));
+  if (!request.url?.startsWith('/api/scan')) return response.end(await answer.text());
+  const lines = (await answer.text()).trimEnd().split('\n');
+  const second = lines.findIndex((line, index) => line.startsWith('{"repository"') && lines.slice(0, index).some((other) => other.startsWith('{"repository"')));
+  response.write(lines.slice(0, second + 1).map((line) => `${line}\n`).join(''));
+  await new Promise<void>((resolve) => { letGo = resolve; });
+  response.end(lines.slice(second + 1).map((line) => `${line}\n`).join(''));
+});
+const halfwayAddress = await listen(halfway, 0);
+after(() => halfway.close());
+
+test('while an organization is scanned, each repository is listed as soon as it is: open it, choose a skill, filter; the result leaves them so', async () => {
+  const { $, done, chosen, type } = await openPage('https://github.com/JetBrains', halfwayAddress, '', false);
+  while ($('skills').querySelectorAll('.repository').length < 2) await new Promise(setImmediate);
+  assert.match($('summary').textContent, /^Scanning… \d of 6 repositories, \d skills? so far$/);
+  // In their places by id, collapsed, Expand all above them.
+  const heading = (item: FakeElement) => text(item.querySelectorAll('summary')[0]);
+  const listed = () => ($('skills').children as FakeElement[]).map(heading);
+  assert.deepEqual(listed(), [...listed()].sort());
+  assert.equal(listed().length, 2);
+  assert.equal($('toggle').textContent, 'Expand all');
+  assert.equal(text($('skill')), 'Open a repository, then choose a skill to see its SKILL.md.');
+
+  const [first] = $('skills').children as FakeElement[];
+  const group = first.querySelectorAll('details')[0];
+  group.open = true;
+  const [skill] = first.querySelectorAll('.skill');
+  choose($, skill);
+  const name = skill.dataset.name;
+  assert.equal(text(chosen()), name);
+
+  // The filter, typed while scanning, keeps only what it matches of what comes after too.
+  type('deploy');
+  letGo();
+  await done();
+  const shown = () => ($('skills').children as FakeElement[]).filter((item) => !item.hidden).map(heading);
+  assert.deepEqual(shown(), ['JetBrains/secret · 1 of 1 skill']);
+  assert.equal($('summary').textContent, 'JetBrains · 1 of 4 skills in 1 of 3 repositories · 6 scanned');
+  type('');
+  assert.equal($('summary').textContent, 'JetBrains · 4 skills in 3 repositories · 6 scanned');
+  assert.deepEqual(listed(), ['JetBrains/example · 1 skill', '❗ JetBrains/hidden · 0 skills', 'JetBrains/secret · 1 skill', '❗ JetBrains/tools · 2 skills']);
+  // The same group, still open; the same skill, still shown.
+  assert.equal(($('skills').children as FakeElement[]).find((item) => item === first)?.querySelectorAll('details')[0].open, true);
+  assert.equal(text(chosen()), name);
+});
+
+// The same scan, stopped after its second repository, as by GitHub's rate limit.
+const stopping = createServer(async (request, response) => {
+  const answer = await fetch(new URL(request.url ?? '/', address));
+  if (!request.url?.startsWith('/api/scan')) return response.end(await answer.text());
+  const lines = (await answer.text()).trimEnd().split('\n');
+  const second = lines.findIndex((line, index) => line.startsWith('{"repository"') && lines.slice(0, index).some((other) => other.startsWith('{"repository"')));
+  response.end([...lines.slice(0, second + 1), '{"status":400,"error":"GitHub rate limit reached; try again in a minute"}'].map((line) => `${line}\n`).join(''));
+});
+const stoppingAddress = await listen(stopping, 0);
+after(() => stopping.close());
+
+test('a scan that stops halfway: the repositories it listed stay, the error above them', async () => {
+  const { $ } = await openPage('https://github.com/JetBrains', stoppingAddress);
+  assert.equal($('skills').querySelectorAll('.repository').length, 2);
+  assert.deepEqual($('messages').children.map(text), ['GitHub rate limit reached; try again in a minute']);
+  assert.equal($('summary').textContent, '');
 });
 
 test('a GitHub repository: its skills with name, description, pinned link and their SKILL.md', async () => {

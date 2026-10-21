@@ -47,3 +47,24 @@ export function pool(limit: number) {
     },
   };
 }
+
+/**
+ * At most `limit` tasks at a time, the others waiting their turn; unlike `pool`, one failing stops nothing.
+ * Wraps each task: `const limited = limit(32); await limited(() => fetch(url))`.
+ */
+export function limit(limit: number) {
+  let running = 0;
+  const waiting: (() => void)[] = [];
+  return async <T>(task: () => Promise<T>): Promise<T> => {
+    if (running >= limit) await new Promise<void>((resolve) => waiting.push(resolve));
+    else running++;
+    try {
+      return await task();
+    } finally {
+      // The slot goes to the next one waiting, or is free again.
+      const next = waiting.shift();
+      if (next) next();
+      else running--;
+    }
+  };
+}

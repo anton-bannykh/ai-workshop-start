@@ -1,6 +1,6 @@
 import { AtlasError, Unavailable } from './errors.ts';
 import { findSkills, SKILL_ROOTS } from './find.ts';
-import { pool } from './pool.ts';
+import { limit, pool } from './pool.ts';
 import type { Listing, OrganizationSource, Source } from './scan.ts';
 
 /** The part of `fetch` the core uses, so tests and the browser can pass their own. */
@@ -14,6 +14,13 @@ export type GitHubOptions = {
 
 const API = 'https://api.github.com';
 const RAW = 'https://raw.githubusercontent.com';
+/** GitHub asks for no more than 100 requests at a time to its API: well under it, whatever asks. */
+const API_REQUESTS = 48;
+/**
+ * Queries into skill roots at a time: listing is no longer what takes long, they are. More, and GitHub's
+ * secondary rate limit stops the scan of a large organization (32 did, for JetBrains).
+ */
+const LOOK_UPS = 24;
 
 /** `https://github.com/owner/repo`, with or without the scheme, a trailing slash or `.git`. */
 export function parseGitHubUrl(input: string): { owner: string; repo: string } | undefined {
@@ -65,7 +72,7 @@ export async function openGitHubOrganization(input: string, options: GitHubOptio
     organization: { id: owner.login, url: `https://github.com/${owner.login}` },
     warnings,
     list: options.token
-      ? (found) => lookUp(github, owner.login, found, warnings)
+      ? (found) => lookUp(github, owner, found, warnings)
       : async ({ total, repository }) => {
         for await (const page of repositories(github, listing)) {
           total(page.length);
@@ -76,8 +83,11 @@ export async function openGitHubOrganization(input: string, options: GitHubOptio
 }
 
 type RepositoriesPage = {
-  repositoryOwner: { repositories: { totalCount: number; pageInfo: { hasNextPage: boolean; endCursor: string }; nodes: ({ id: string; nameWithOwner: string } | null)[] } };
+  repositoryOwner: { repositories: { totalCount: number; pageInfo: { hasNextPage: boolean; endCursor: string }; nodes: (RepositoryNode | null)[] } };
 };
+
+/** A repository as GraphQL names it: its node id, to look into it by. */
+type RepositoryNode = { id: string; nameWithOwner: string };
 
 type Entries = { entries: { name: string; type: string; mode: number; object?: Entries | null }[] } | null;
 
@@ -87,6 +97,11 @@ const REPOSITORIES = `query($login: String!, $after: String) {
       totalCount pageInfo { hasNextPage endCursor } nodes { id nameWithOwner }
     }
   }
+}`;
+
+/** How many repositories GraphQL counts for the owner, the same ones REPOSITORIES lists. */
+const REPOSITORY_COUNT = `query($login: String!) {
+  repositoryOwner(login: $login) { repositories(isFork: false, ownerAffiliations: OWNER) { totalCount } }
 }`;
 
 // HEAD is the default branch's commit, the one `oid` names. Each skill root's directories, and their files.
@@ -101,23 +116,18 @@ const SKILL_ROOT_FILES = `query($ids: [ID!]!) {
 }
 fragment directories on GitObject { ... on Tree { entries { name type mode object { ... on Tree { entries { name type mode } } } } } }`;
 
+/** What a listing found: how many repositories GitHub counts, and how many it listed to the token. */
+type Listed = { counted: number; listed: number };
+
 /**
- * Lists the owner's repositories, 100 a page, and looks into each one's skill roots as its page comes:
- * 10 repositories a query, 8 queries at a time. Only one with skills is to be scanned.
+ * Lists the owner's repositories, and looks into each one's skill roots as its page comes: 10 repositories
+ * a query, LOOK_UPS queries at a time. Only one with skills is to be scanned.
  * The total is the repositories listed, page by page: GitHub's `totalCount` may count ones the token
  * cannot read, which it does not list; if it does, a warning says how many.
  */
-async function lookUp(github: Client, login: string, { total, checked, repository }: Listing, warnings: string[]): Promise<void> {
-  const queries = pool(8);
-  let counted = 0;
-  let listed = 0;
-  for (let after: string | null = null; !queries.failed;) {
-    const answer: RepositoriesPage = await github.graphql(REPOSITORIES, { login, after });
-    const page = answer.repositoryOwner.repositories;
-    counted = page.totalCount;
-    // A repository the token may not read can be left out of a page, or answered as null.
-    const nodes = page.nodes.filter((node) => node !== null);
-    listed += nodes.length;
+async function lookUp(github: Client, owner: { login: string; type: string }, { total, checked, repository }: Listing, warnings: string[]): Promise<void> {
+  const queries = pool(LOOK_UPS);
+  const look = (nodes: RepositoryNode[]) => {
     total(nodes.length);
     for (let start = 0; start < nodes.length; start += 10) {
       const batch = nodes.slice(start, start + 10);
@@ -147,13 +157,87 @@ async function lookUp(github: Client, login: string, { total, checked, repositor
         checked(without);
       });
     }
+  };
+  let listed: Listed;
+  try {
+    listed = owner.type === 'Organization'
+      ? await listOrganization(github, owner.login, look, () => queries.failed, warnings)
+      : await listOwner(github, owner.login, look, () => queries.failed);
+  } catch (error) {
+    // No query left running behind a listing that stopped.
+    await queries.done().catch(() => {});
+    throw error;
+  }
+  await queries.done();
+  if (listed.counted > listed.listed) {
+    warnings.push(`GitHub counts ${listed.counted} repositories, but lists only ${listed.listed} to this token; the other ${listed.counted - listed.listed} cannot be read with it and were not scanned`);
+  }
+}
+
+/** The owner's repositories over GraphQL, 100 a page, a page at a time: each page names the next. */
+async function listOwner(github: Client, login: string, look: (nodes: RepositoryNode[]) => void, stopped: () => boolean): Promise<Listed> {
+  let counted = 0;
+  let listed = 0;
+  for (let after: string | null = null; !stopped();) {
+    const answer: RepositoriesPage = await github.graphql(REPOSITORIES, { login, after });
+    const page = answer.repositoryOwner.repositories;
+    counted = page.totalCount;
+    // A repository the token may not read can be left out of a page, or answered as null.
+    const nodes = page.nodes.filter((node) => node !== null);
+    listed += nodes.length;
+    look(nodes);
     if (!page.pageInfo.hasNextPage) break;
     after = page.pageInfo.endCursor;
   }
-  await queries.done();
-  if (counted > listed) {
-    warnings.push(`GitHub counts ${counted} repositories, but lists only ${listed} to this token; the other ${counted - listed} cannot be read with it and were not scanned`);
+  return { counted, listed };
+}
+
+type ListedRepository = { full_name: string; node_id: string; fork: boolean };
+
+/**
+ * An organization's repositories over REST, 100 a page, forks left out: the first page says how many pages
+ * there are, then all the others at once, which GraphQL's pages, each naming the next, cannot. GraphQL counts
+ * them meanwhile. A page that cannot be listed → a warning, the organization's; if not even the first can, GraphQL
+ * lists them instead.
+ */
+async function listOrganization(
+  github: Client,
+  login: string,
+  look: (nodes: RepositoryNode[]) => void,
+  stopped: () => boolean,
+  warnings: string[],
+): Promise<Listed> {
+  const counting = github.graphql<{ repositoryOwner: { repositories: { totalCount: number } } | null }>(REPOSITORY_COUNT, { login })
+    .then((answer) => answer.repositoryOwner?.repositories.totalCount ?? 0, skipped(() => 0));
+  // Awaited once the pages are listed; until then, its failure is not left unhandled, should a page stop the listing first.
+  counting.catch(() => {});
+  const url = (page: number) => `${API}/orgs/${login}/repos?per_page=100&page=${page}`;
+  let listed = 0;
+  const take = (repositories: ListedRepository[]) => {
+    const nodes = repositories.filter((info) => !info.fork).map((info) => ({ id: info.node_id, nameWithOwner: info.full_name }));
+    listed += nodes.length;
+    look(nodes);
+  };
+  let first: { body: ListedRepository[]; pages: number };
+  try {
+    first = await github.pages<ListedRepository[]>(url(1));
+  } catch (error) {
+    if (!(error instanceof AtlasError) || error instanceof Unavailable) throw error;
+    return listOwner(github, login, look, stopped);
   }
+  take(first.body);
+  await Promise.all(Array.from({ length: first.pages - 1 }, (_, index) => index + 2).map((page) => github.json<ListedRepository[]>(url(page)).then(take, skipped((error) => {
+    warnings.push(`cannot list page ${page} of its repositories, ${(page - 1) * 100 + 1} to ${page * 100}: ${error.message}; they were not scanned`);
+  }))));
+  return { counted: await counting, listed };
+}
+
+/** For a failure that costs only what it was for: GitHub not answering at all, or a bug, still fails. */
+function skipped<T>(instead: (error: AtlasError) => T) {
+  return (error: unknown): T => {
+    if (!(error instanceof AtlasError) || error instanceof Unavailable) throw error;
+    return instead(error);
+  };
 }
 
 /** `<root>/<directory>/<file>` for each regular file in each of the root's directories. */
@@ -210,13 +294,13 @@ type History = { nodes: { committedDate: string }[] } | null;
 /**
  * When each directory was last modified: the date of the last commit that changed it, up to the commit.
  * Over GraphQL, so with a token only: without one, a request per skill would spend the 60 an hour.
- * A history is slow to look up in a large repository: 10 paths a query, all of them at once.
+ * A history is slow to look up in a large repository: 5 paths a query, all of them at once (API_REQUESTS at a time).
  */
 async function lastModified(github: Client, id: string, sha: string, directories: string[]): Promise<Map<string, string>> {
   const [owner, name] = id.split('/');
   const sorted = [...directories].sort();
   const batches = [];
-  for (let start = 0; start < sorted.length; start += 10) batches.push(sorted.slice(start, start + 10));
+  for (let start = 0; start < sorted.length; start += 5) batches.push(sorted.slice(start, start + 5));
   const answers = await Promise.all(batches.map((batch) => github.graphql<{ repository: { object: Record<string, History> | null } | null }>(
     lastModifiedQuery(batch.length),
     { owner, name, commit: sha, ...Object.fromEntries(batch.map((path, index) => [`path${index}`, path])) },
@@ -286,6 +370,7 @@ function client({ fetch, token }: GitHubOptions) {
   // A private repository's files too, on raw.githubusercontent.com as on the API.
   const auth: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
   const answers = new Map<string, Promise<unknown>>(); // the root tree is asked for once per skill root
+  const api = limit(API_REQUESTS);
 
   async function get(url: string, init?: Parameters<Fetch>[1]): Promise<Response> {
     try {
@@ -295,9 +380,23 @@ function client({ fetch, token }: GitHubOptions) {
     }
   }
 
-  async function request(url: string, notFound: string, init?: Parameters<Fetch>[1]): Promise<unknown> {
-    const response = await get(url, { ...init, headers: { ...headers, ...auth } });
-    if (response.ok) return response.json();
+  /** The API's answer, its body read, API_REQUESTS at a time. */
+  function request(url: string, notFound: string, init?: Parameters<Fetch>[1]): Promise<{ body: unknown; response: Response }> {
+    return api(async () => {
+      const response = await get(url, { ...init, headers: { ...headers, ...auth } });
+      return { body: await answer(response, url, notFound), response };
+    });
+  }
+
+  async function answer(response: Response, url: string, notFound: string): Promise<unknown> {
+    if (response.ok) {
+      // An answer cut short, as GitHub sends now and then under load: not JSON.
+      try {
+        return await response.json();
+      } catch {
+        throw new AtlasError(`GitHub sent an incomplete answer for ${url}`);
+      }
+    }
     const body: unknown = await response.json().catch(() => undefined);
     const message = (body as { message?: unknown } | undefined)?.message;
     const text = typeof message === 'string' ? message : '';
@@ -315,21 +414,30 @@ function client({ fetch, token }: GitHubOptions) {
     authorized: Boolean(token),
     /** A GitHub API answer; `notFound` explains a 404. */
     json<T>(url: string, notFound = `Not found on GitHub: ${url}`): Promise<T> {
-      if (!answers.has(url)) answers.set(url, request(url, notFound));
+      if (!answers.has(url)) answers.set(url, request(url, notFound).then(({ body }) => body));
       return answers.get(url) as Promise<T>;
     },
-    /** A GraphQL answer's data; a query that times out (502, 504) is asked once more. */
+    /** The first page of a listing, and how many pages it has, as its `Link` header names the last. */
+    async pages<T>(url: string): Promise<{ body: T; pages: number }> {
+      const { body, response } = await request(url, `Not found on GitHub: ${url}`);
+      const last = /[?&]page=(\d+)[^>]*>;\s*rel="last"/.exec(response.headers.get('link') ?? '');
+      return { body: body as T, pages: last ? Number(last[1]) : 1 };
+    },
+    /** A GraphQL answer's data; a query that times out (502, 504), or whose answer is cut short, is asked once more. */
     async graphql<T>(query: string, variables: Record<string, unknown>): Promise<T> {
-      const ask = () => request(`${API}/graphql`, 'GitHub GraphQL not found', { method: 'POST', body: JSON.stringify({ query, variables }) });
+      const ask = async () => (await request(`${API}/graphql`, 'GitHub GraphQL not found', { method: 'POST', body: JSON.stringify({ query, variables }) })).body;
       let answer: { data?: T | null; errors?: { type?: string; message: string }[] };
       try {
         answer = await ask() as typeof answer;
       } catch (error) {
-        if (!(error instanceof AtlasError) || !/^GitHub answered 50[24] /.test(error.message)) throw error;
+        if (!(error instanceof AtlasError) || !/^GitHub (answered 50[24] |sent an incomplete answer )/.test(error.message)) throw error;
         answer = await ask() as typeof answer;
       }
       const errors = answer.errors ?? [];
-      if (errors.some((error) => error.type === 'RATE_LIMITED')) throw new Unavailable('GitHub rate limit reached; try again in a minute');
+      // RATE_LIMITED for the hour's points, RATE_LIMIT for too many at once (GitHub's secondary limit).
+      if (errors.some((error) => /^RATE_LIMIT(ED)?$/.test(error.type ?? '') || /rate limit/i.test(error.message))) {
+        throw new Unavailable('GitHub rate limit reached; try again in a minute');
+      }
       // A partial answer is still an answer: what it could not resolve is null.
       if (!answer.data) throw new AtlasError(`GitHub GraphQL answered: ${errors.map((error) => error.message).join('; ') || 'no data'}`);
       return answer.data;

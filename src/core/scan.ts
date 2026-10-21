@@ -98,9 +98,14 @@ export type Progress = { done: number; total: number; skills: number };
 
 /**
  * Every repository listed is scanned, 8 at a time, as soon as it is; one that cannot be read is
- * skipped with a warning. `progress` hears of each repository done.
+ * skipped with a warning. `progress` hears of each repository done; `found`, of each one with skills
+ * or warnings, as soon as it is done, before its progress: the result's repositories, in the order they come.
  */
-export async function scanOrganization(source: OrganizationSource, progress?: (progress: Progress) => void): Promise<OrganizationScanResult> {
+export async function scanOrganization(
+  source: OrganizationSource,
+  progress?: (progress: Progress) => void,
+  found?: (repository: RepositoryResult) => void,
+): Promise<OrganizationScanResult> {
   let total = 0;
   let done = 0;
   let skills = 0;
@@ -109,6 +114,10 @@ export async function scanOrganization(source: OrganizationSource, progress?: (p
   const report = () => { if (!stopped) progress?.({ done, total, skills }); };
   const scans = pool(8);
   const results: RepositoryResult[] = [];
+  const add = (result: RepositoryResult) => {
+    results.push(result);
+    if (!stopped && (result.skills.length > 0 || result.warnings.length > 0)) found?.(result);
+  };
   await source.list({
     total(count) { total += count; report(); },
     checked(count) { done += count; report(); },
@@ -118,7 +127,7 @@ export async function scanOrganization(source: OrganizationSource, progress?: (p
         try {
           const result = await scan(await open());
           skills += result.skills.length;
-          results.push(result);
+          add(result);
         } catch (error) {
           if (!(error instanceof AtlasError) || error instanceof Unavailable) {
             stopped ??= { error };
@@ -126,7 +135,7 @@ export async function scanOrganization(source: OrganizationSource, progress?: (p
           }
           const [organization, name] = id.split('/');
           const repository = { id, organization, name, url: `${source.organization.url}/${name}`, commit: '' };
-          results.push({ repository, skills: [], warnings: [`${error.message}; skipped`] });
+          add({ repository, skills: [], warnings: [`${error.message}; skipped`] });
         }
         done++;
         report();
