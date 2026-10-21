@@ -22,7 +22,10 @@ Listens on *127.0.0.1* only; *nothing is stored*.
 - A repository with warnings, its own or a skill's: ❗ in its heading; its own *in its group*, above its skills;
   also one with no skills
 - A skill with a warning: in the list, *only* ❗ by its name; choosing it shows the warning, above its SKILL.md
-- While an organization is scanned: `Scanning… 5 of 688 repositories, 57 skills so far`
+- While an organization is scanned: `Scanning… 5 of 688 repositories, 57 skills so far`; each repository with
+  skills or warnings in the list *as soon as it is scanned*, in its place by id. Open it, choose a skill, filter,
+  meanwhile: what comes after, and the result, leave them so. The groups, once it is done
+- A scan that stops halfway: the repositories it listed stay, and the skill chosen; the error above them
 - Warnings and errors shown on the page; the other warnings out of the way, in a *collapsed* group: `❗ N warnings`
 - `/?repo=<link>` opens the page with that repository scanned
 - **Skills** / **Groups**, as buttons by the title: two views of *the same scan*, in the page, not two pages: no new scan;
@@ -63,8 +66,9 @@ with skills or warnings, each with its own; `scanned`, how many repositories wer
 `groups`, every repository's skills together
 `groups`: each `{ words, skills }`, each skill its `id` and `kinds`, `'all' | 'some' | 'own'`, one for each line of
 its `text`, split at `\n`, `\r\n` or `\r`, the last line end left out
-`&progress` → `application/x-ndjson`: `{ progress: { done, total, skills } }` as each repository is done,
-then `{ result }`, the same JSON; or `{ status, error }`. The page asks this way
+`&progress` → `application/x-ndjson`: `{ progress: { done, total, skills } }` as each repository is done, each one
+with skills or warnings in a `{ repository }` line before it, as in the result; then `{ result }`, the same JSON; or
+`{ status, error }`. The page asks this way
 ## Formatting
 - Any repository's file: *nothing in it runs*. Raw HTML → shown as text (a block of it as code)
 - Links: `http`, `https`, `mailto`, `file`, `#anchors`; images: `http`, `https`, `file`; others → dropped

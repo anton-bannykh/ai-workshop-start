@@ -63,6 +63,18 @@ test('an organization: a collapsed group per repository, ❗ on those with warni
   await expect(page).toHaveScreenshot('organization.png');
 });
 
+test('an organization while it is scanned: the repositories scanned so far, listed; one opened, a skill chosen', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('#repo').fill('https://github.com/JetBrains/');
+  await page.locator('#scan').click();
+  // All but JetBrains/secret, which never comes.
+  await expect(page.locator('#summary')).toHaveText('Scanning… 5 of 6 repositories, 3 skills so far');
+  await page.locator('#skills .repository summary', { hasText: 'JetBrains/tools' }).click();
+  await skill(page, 'lint').locator('.name').click();
+  await expect(page.locator('#skill h2')).toHaveText('lint');
+  await expect(page).toHaveScreenshot('organization-scanning.png');
+});
+
 test('an organization, all expanded: each repository’s warnings in its group, above its skills', async ({ page }) => {
   await scan(page, 'https://github.com/JetBrains');
   await page.locator('#toggle').click();

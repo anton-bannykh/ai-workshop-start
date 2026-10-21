@@ -188,9 +188,12 @@
 
   /** Formatted Markdown by default; the raw file on its own tab. */
   let view = 'formatted';
+  /** The skill shown, if one is: what comes in while scanning leaves it there. */
+  let chosen = null;
 
   /** The skill's SKILL.md, its warnings above it. */
   function show(skill, item) {
+    chosen = skill;
     for (const other of $('skills').querySelectorAll('.skill')) other.setAttribute('aria-selected', String(other === item));
     const formatted = element('div', { id: 'formatted', className: 'markdown', innerHTML: skill.html });
     const raw = element('pre', { id: 'text' }, skill.text);
@@ -298,19 +301,51 @@
     summarize = (shown, keeps) => filtering()
       ? `${organization.id} · ${shown} of ${count(total, 'skill', 'skills')} in ${keeps.filter(Boolean).length} of ${count(withSkills, 'repository', 'repositories')} · ${scanned} scanned`
       : `${organization.id} · ${count(total, 'skill', 'skills')} in ${count(withSkills, 'repository', 'repositories')} · ${scanned} scanned`;
-    $('skills').replaceChildren(...repositories.map(({ repository, skills, warnings }) => element('li', { className: 'repository' },
+    listRepositories(repositories);
+    if (!chosen) {
+      $('skill').replaceChildren(element('p', { className: 'empty' },
+        withSkills ? 'Open a repository, then choose a skill to see its SKILL.md.' : 'No skills here.'));
+    }
+  }
+
+  /** Each repository's group in the list, by id: made once, and kept as it is, opened or not, as more come. */
+  let repositoryItems = new Map();
+
+  function repositoryItem({ repository, skills, warnings }) {
+    const item = element('li', { className: 'repository' },
       element('details', {},
         element('summary', {}, warned(warnings, skills) ? '❗ ' : '', `${repository.id} · `, element('span', { className: 'count' })),
         ...warnings.map(warning),
-        element('ul', {}, ...skills.map(skillItem))))));
+        element('ul', {}, ...skills.map(skillItem))));
+    item.querySelectorAll('details')[0].addEventListener('toggle', toggleLabel);
+    return item;
+  }
+
+  const repositoryGroups = () => [...$('skills').querySelectorAll('details')];
+  /** Expand all while one is collapsed, else Collapse all; nothing without a repository. */
+  const toggleLabel = () => {
+    const groups = repositoryGroups();
+    $('toggle').textContent = groups.length === 0 ? '' : groups.some((group) => !group.open) ? 'Expand all' : 'Collapse all';
+  };
+  $('toggle').onclick = () => {
+    const groups = repositoryGroups();
+    const open = groups.some((group) => !group.open);
+    for (const group of groups) group.open = open;
+    toggleLabel();
+  };
+
+  /**
+   * The repositories, as they come while an organization is scanned, then all of them: each in its place by
+   * id, filtered as the others; one already in the list stays as it is.
+   */
+  function listRepositories(repositories) {
+    for (const scanned of repositories) {
+      if (!repositoryItems.has(scanned.repository.id)) repositoryItems.set(scanned.repository.id, repositoryItem(scanned));
+    }
+    $('skills').replaceChildren(...[...repositoryItems.keys()].sort().map((id) => repositoryItems.get(id)));
     applyFilter();
-    const groups = [...$('skills').querySelectorAll('details')];
-    const label = () => { $('toggle').textContent = groups.some((group) => !group.open) ? 'Expand all' : 'Collapse all'; };
-    for (const group of groups) group.addEventListener('toggle', label);
-    $('toggle').onclick = () => { const open = groups.some((group) => !group.open); for (const group of groups) group.open = open; label(); };
-    if (groups.length) label();
-    $('skill').replaceChildren(element('p', { className: 'empty' },
-      withSkills ? 'Open a repository, then choose a skill to see its SKILL.md.' : 'No skills here.'));
+    toggleLabel();
+    if (!chosen) $('skill').replaceChildren(element('p', { className: 'empty' }, 'Open a repository, then choose a skill to see its SKILL.md.'));
   }
 
   // Groups: the same skills, grouped by the words their names share, to see what is the same in them and what is not.
@@ -514,6 +549,8 @@
   async function scan(repo) {
     lastScanned = repo;
     result = null;
+    chosen = null;
+    repositoryItems = new Map();
     remember();
     $('scan').disabled = true;
     summarize = null;
@@ -539,6 +576,8 @@
         for (const line of lines.filter(Boolean).map((text) => JSON.parse(text))) {
           if (line.error) throw new Error(line.error);
           if (line.result) { result = line.result; render(result); renderGroups(result); }
+          // An organization's repository, as soon as it is scanned: in the list, while the others are.
+          if (line.repository) listRepositories([line.repository]);
           if (line.progress) {
             const { done, total, skills } = line.progress;
             $('summary').textContent = $('groups-summary').textContent =
@@ -553,7 +592,8 @@
       $('groups-summary').textContent = '';
       $('messages').replaceChildren(element('p', { className: 'error' }, error.message));
       $('groups-messages').replaceChildren(element('p', { className: 'error' }, error.message));
-      $('skill').replaceChildren();
+      // The repositories already scanned stay, and the skill chosen in one of them.
+      if (!chosen) $('skill').replaceChildren();
       $('group').replaceChildren();
     } finally {
       $('scan').disabled = false;

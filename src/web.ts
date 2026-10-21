@@ -6,7 +6,7 @@ import { createServer, type Server } from 'node:http';
 import { AtlasError } from './core/errors.ts';
 import { groupSkills } from './core/groups.ts';
 import { skillLink, skillLinkParts, type Repository, type Skill } from './core/model.ts';
-import { scan, scanOrganization, type OrganizationSource, type Progress, type Source } from './core/scan.ts';
+import { scan, scanOrganization, type OrganizationSource, type Progress, type RepositoryResult, type Source } from './core/scan.ts';
 import { renderSkill } from './markdown.ts';
 
 const PAGE = readFileSync(new URL('./web/index.html', import.meta.url));
@@ -35,12 +35,13 @@ export function createWebServer(open: (input: string) => Promise<Source | Organi
       ? { status: 400, error: error.message }
       : { status: 500, error: `Unexpected error: ${error instanceof Error ? error.message : String(error)}` };
 
-    // With &progress, one JSON line as each repository is done, then the result or the error.
+    // With &progress, one JSON line as each repository is done, each one with skills or warnings in a line
+    // of its own before it, then the result or the error.
     if (url.searchParams.has('progress')) {
       response.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-store' });
       const line = (value: unknown) => response.write(`${JSON.stringify(value)}\n`);
       try {
-        line({ result: await scanned(open, input, (progress) => line({ progress })) });
+        line({ result: await scanned(open, input, (progress) => line({ progress }), (repository) => line({ repository })) });
       } catch (error) {
         line(failure(error));
       }
@@ -59,13 +60,21 @@ export function createWebServer(open: (input: string) => Promise<Source | Organi
  * What `/api/scan` answers: the repository, or the organization's repositories, with the warnings; and
  * the groups of skills whose names share words, every repository's skills together.
  */
-async function scanned(open: (input: string) => Promise<Source | OrganizationSource>, input: string, progress?: (progress: Progress) => void) {
+async function scanned(
+  open: (input: string) => Promise<Source | OrganizationSource>,
+  input: string,
+  progress?: (progress: Progress) => void,
+  found?: (repository: ReturnType<typeof repositoryPage>) => void,
+) {
   const source = await open(input);
   if ('organization' in source) {
-    const { organization, repositories, scanned, warnings } = await scanOrganization(source, progress);
+    // Each repository's SKILL.md files made into HTML once: for its line, then for the result.
+    const pages = new Map<RepositoryResult, ReturnType<typeof repositoryPage>>();
+    const page = (result: RepositoryResult) => pages.get(result) ?? pages.set(result, repositoryPage(result)).get(result)!;
+    const { organization, repositories, scanned, warnings } = await scanOrganization(source, progress, found && ((result) => found(page(result))));
     return {
       organization,
-      repositories: repositories.map(({ repository, skills, warnings }) => ({ ...withPages(repository, skills), warnings })),
+      repositories: repositories.map(page),
       scanned,
       warnings,
       groups: grouped(repositories.flatMap(({ skills }) => skills)),
@@ -73,6 +82,11 @@ async function scanned(open: (input: string) => Promise<Source | OrganizationSou
   }
   const { repository, skills, warnings } = await scan(source);
   return { ...withPages(repository, skills), warnings, groups: grouped(skills) };
+}
+
+/** A repository of an organization, with its pages and its own warnings, as the result and its line have it. */
+function repositoryPage({ repository, skills, warnings }: RepositoryResult) {
+  return { ...withPages(repository, skills), warnings };
 }
 
 /** The groups of skills whose names share words; each skill by its id, with the kind of each line of its SKILL.md there. */

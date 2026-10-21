@@ -159,14 +159,14 @@ function many(dates: Recording) {
   return { commit, names, open: () => openGitHub('https://github.com/JetBrains/many', { fetch: replay(recording), token: 'test' }) };
 }
 
-test('more than 10 skills: their dates 10 a GraphQL query; a directory no commit changed has none', async () => {
+test('more than 5 skills: their dates 5 a GraphQL query; a directory no commit changed has none', async () => {
   const commit = '1111111111111111111111111111111111111111';
   const dates = Object.fromEntries(Array.from({ length: 12 }, (_, index) => [
     `.agents/skills/s${String(index).padStart(2, '0')}`,
     index === 11 ? null : `2026-01-${String(index + 10).padStart(2, '0')}T12:00:00Z`,
   ]));
   const recording = lastModified('JetBrains/many', commit, dates);
-  assert.equal(Object.keys(recording).length, 2, 'two queries: 10 paths, then 2');
+  assert.equal(Object.keys(recording).length, 3, 'three queries: 5 paths, 5, then 2');
   const result = await scan(await many(recording).open());
   assert.deepEqual(result.skills.map((skill) => skill.modified), [...Object.values(dates).slice(0, 11), '']);
   assert.deepEqual(result.warnings, []);

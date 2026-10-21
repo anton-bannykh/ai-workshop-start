@@ -13,7 +13,7 @@ Skill: id = `repo:path`, name, description, commit, text (the SKILL.md), modifie
 - The link pins the *scanned commit*
 - **Modified**: when the skill was last modified, the date of the *last commit that changed its directory*, up to the
   scanned commit; a local directory: its newest file's modification time
-  - With `GITHUB_TOKEN` only: GraphQL, 10 directories a query, all at once; without it, no date (a request each
+  - With `GITHUB_TOKEN` only: GraphQL, 5 directories a query, all at once; without it, no date (a request each
     would spend the 60 an hour)
   - A directory no commit changed: no date; the dates cannot be asked for → a *warning*, the repository's; the
     scan goes on
@@ -26,19 +26,26 @@ Skill: id = `repo:path`, name, description, commit, text (the SKILL.md), modifie
 `https://github.com/<owner>` (or `/orgs/<owner>`): every repository of the owner, at once
 - Each repository on its own: its id, its skills, its commit; sorted by **id**
 - Only the repositories *with skills* (the web view: or with warnings); forks left out
-- With `GITHUB_TOKEN`: **GraphQL** lists *every* repository, 100 a page, and looks into each one's skill roots
-  at its commit, 10 repositories a query, 8 queries at a time; a repository with no skill is not opened
+- With `GITHUB_TOKEN`: *every* repository listed, 100 a page: an organization's over **REST**, *all the pages at
+  once*, the first saying how many; a user's over **GraphQL**, a page at a time. **GraphQL** looks into each one's
+  skill roots at its commit as its page comes, 10 repositories a query, 24 queries at a time; a repository with no
+  skill is not opened
 - The repositories to scan: those GitHub *lists* to the token, counted page by page as they come. GitHub's
-  `totalCount` may count more, ones the token cannot read (e.g. a private one behind SAML single sign-on the token
-  is not authorized for) → a *warning* with both numbers; those are not scanned
+  `totalCount` (GraphQL's, asked meanwhile) may count more, ones the token cannot read (e.g. a private one behind
+  SAML single sign-on the token is not authorized for) → a *warning* with both numbers; those are not scanned
+- A page REST cannot list → a *warning*, the organization's, its repositories not scanned; not even the first →
+  GraphQL lists them instead
+- *No more than 48 requests* to GitHub's API at a time, whatever asks: GitHub asks for under 100
 - *No code search*: it returns 1000 results at most, and owner-wide it leaves files out and names ones gone
 - Without it: every repository opened; only a small owner fits in the rate limit
 - An empty repository: no skills, *no warning*
 - A repository that cannot be read → a *warning*, its own; the scan goes on
-- A GraphQL query that times out → asked *once more*; failing again → a warning for each of its repositories
+- A GraphQL query that times out, or whose answer is cut short → asked *once more*; failing again → a warning for
+  each of its repositories
 - 8 repositories at a time; *progress* as each one is done: how many of all the owner's listed so far, the skills so far
 - The result: the repositories with skills, and how many were *scanned*: most have no skills
-- Unknown owner, unreachable GitHub, the rate limit → a clear message, exit code 1
+- Unknown owner, unreachable GitHub, the rate limit, its secondary limit (too many at once) too → a clear message,
+  exit code 1
 ## What is a project skill?
 `<root>/<name>/SKILL.md`, `<root>` is one of:
 `.agents/skills`, `.claude/skills`,

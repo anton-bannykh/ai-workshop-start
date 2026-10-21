@@ -1,6 +1,6 @@
 // The web view for the visual tests: GitHub answers from tests/helpers.ts, from HANDBOOK below, a
 // repository with a SKILL.md that shows what the formatting does, and from PLAYBOOK, one with similar skills. Nothing reaches the network, so every
-// run shows the same pages.
+// run shows the same pages; https://github.com/JetBrains/ stays halfway scanned.
 import { AtlasError } from '../../src/core/errors.ts';
 import { openGitHub, openGitHubOrganization, parseGitHubOwnerUrl, parseGitHubUrl } from '../../src/core/github.ts';
 import { replay, type Recording } from '../../src/core/replay.ts';
@@ -132,7 +132,11 @@ const PLAYBOOK: Recording = {
 };
 
 const fetch = replay({ ...HANDBOOK, ...PLAYBOOK }, github);
+// The organization caught while it is scanned: the same, but JetBrains/secret's SKILL.md never comes. Asked for
+// as https://github.com/JetBrains/, with the slash.
+const halfway: typeof fetch = (url, init) => url.includes('/JetBrains/secret/') ? new Promise(() => {}) : fetch(url, init);
 const open = (input: string) => {
+  if (input === 'https://github.com/JetBrains/') return openGitHubOrganization(input, { fetch: halfway, token: 'test' });
   if (parseGitHubOwnerUrl(input)) return openGitHubOrganization(input, { fetch, token: 'test' });
   if (parseGitHubUrl(input)) return openGitHub(input, { fetch, token: 'test' });
   // Not a local directory: its file:// links would show where this checkout is.

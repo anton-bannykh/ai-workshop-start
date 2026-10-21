@@ -14,14 +14,14 @@ export const EXAMPLE_COMMIT = '5ab6270ab772d113e8ad52ebfcaa0109c522ae00';
 
 /**
  * When a repository's skill directories were last modified, as GraphQL answers it at the commit: the
- * directories sorted, 10 a query. A date of null: no commit changed it, as for a path not there.
+ * directories sorted, 5 a query. A date of null: no commit changed it, as for a path not there.
  */
 export function lastModified(id: string, commit: string, dates: Record<string, string | null>): Recording {
   const [owner, name] = id.split('/');
   const directories = Object.keys(dates).sort();
   const recording: Recording = {};
-  for (let start = 0; start < directories.length; start += 10) {
-    const batch = directories.slice(start, start + 10);
+  for (let start = 0; start < directories.length; start += 5) {
+    const batch = directories.slice(start, start + 5);
     const paths = Object.fromEntries(batch.map((path, index) => [`path${index}`, path]));
     const histories = Object.fromEntries(batch.map((path, index) => [`path${index}`, { nodes: dates[path] ? [{ committedDate: dates[path] }] : [] }]));
     recording[graphql({ owner, name, commit, ...paths })] = { status: 200, body: { data: { repository: { object: histories } } } };
@@ -61,6 +61,29 @@ export function tree(entries: Record<string, string | null>) {
         sha ? { path, mode: '040000', type: 'tree', sha } : { path, mode: '100644', type: 'blob', sha: '0' }),
     },
   };
+}
+
+/**
+ * An organization's repositories as REST lists them, 100 a page, each page's `Link` naming the last: `[id, node id]`
+ * each, a third `true` for a fork. And how many GraphQL counts, those listed but the forks unless `counted` says more.
+ */
+export function listedRepositories(login: string, repositories: [string, string, boolean?][], counted?: number): Recording {
+  const pages = Math.max(1, Math.ceil(repositories.length / 100));
+  const url = (page: number) => `https://api.github.com/orgs/${login}/repos?per_page=100&page=${page}`;
+  const recording: Recording = {
+    [graphql({ login })]: {
+      status: 200,
+      body: { data: { repositoryOwner: { repositories: { totalCount: counted ?? repositories.filter(([, , fork]) => !fork).length } } } },
+    },
+  };
+  for (let page = 1; page <= pages; page++) {
+    recording[url(page)] = {
+      status: 200,
+      body: repositories.slice((page - 1) * 100, page * 100).map(([full_name, node_id, fork]) => ({ full_name, node_id, fork: Boolean(fork) })),
+      headers: pages > 1 ? { Link: `<${url(Math.min(page + 1, pages))}>; rel="next", <${url(pages)}>; rel="last"` } : {},
+    };
+  }
+  return recording;
 }
 
 /** A page of an owner's repositories, as GraphQL lists them: `[id, node id]` each; `next` the cursor of the next page. */
@@ -103,17 +126,19 @@ export function skillRoots(id: string, commit: string | null, roots: Record<stri
 }
 
 /**
- * What GitHub answers for the JetBrains organization, over GraphQL with a token: six repositories,
- * on two pages. JetBrains/example and JetBrains/tools have skills; JetBrains/docs has none and
+ * What GitHub answers for the JetBrains organization with a token: six repositories, and a fork, listed
+ * over REST, looked into over GraphQL. JetBrains/example and JetBrains/tools have skills; JetBrains/docs has none and
  * JetBrains/empty has no commit, so neither is opened and they have no answers here.
  * JetBrains/secret is private: its file is read with the token. GraphQL answers nothing for
  * JetBrains/hidden.
  */
 const ORGANIZATION: Recording = {
   'https://api.github.com/users/JetBrains': { status: 200, body: { login: 'JetBrains', type: 'Organization' } },
-  [graphql({ login: 'JetBrains', after: null })]: repositoriesPage(6, [['JetBrains/example', 'R1'], ['JetBrains/docs', 'R2'], ['JetBrains/tools', 'R3']], 'page2'),
-  [graphql({ login: 'JetBrains', after: 'page2' })]: repositoriesPage(6, [['JetBrains/empty', 'R4'], ['JetBrains/secret', 'R5'], ['JetBrains/hidden', 'R6']]),
-  [graphql({ ids: ['R1', 'R2', 'R3'] })]: {
+  ...listedRepositories('JetBrains', [
+    ['JetBrains/example', 'R1'], ['JetBrains/docs', 'R2'], ['JetBrains/tools', 'R3'], ['JetBrains/fork', 'F1', true],
+    ['JetBrains/empty', 'R4'], ['JetBrains/secret', 'R5'], ['JetBrains/hidden', 'R6'],
+  ]),
+  [graphql({ ids: ['R1', 'R2', 'R3', 'R4', 'R5', 'R6'] })]: {
     status: 200,
     body: {
       data: {
@@ -127,13 +152,12 @@ const ORGANIZATION: Recording = {
             '.github/skills': { build: ['SKILL.md', 'notes.md'] },
             'agent/skills': ['SKILL.md'],
           }),
+          skillRoots('JetBrains/empty', null),
+          skillRoots('JetBrains/secret', SECRET_COMMIT, { '.agents/skills': { deploy: ['SKILL.md'] } }),
+          null,
         ],
       },
     },
-  },
-  [graphql({ ids: ['R4', 'R5', 'R6'] })]: {
-    status: 200,
-    body: { data: { nodes: [skillRoots('JetBrains/empty', null), skillRoots('JetBrains/secret', SECRET_COMMIT, { '.agents/skills': { deploy: ['SKILL.md'] } }), null] } },
   },
   [`https://raw.githubusercontent.com/JetBrains/tools/${TOOLS_COMMIT}/.agents/skills/lint/SKILL.md`]: {
     status: 200,
