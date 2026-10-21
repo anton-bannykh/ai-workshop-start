@@ -1,9 +1,10 @@
-// Publishes recorded demos, and screenshots, for a pull request: uploads them to the `demos` branch of
-// `origin`, never the repository it was forked from, and prints the Markdown that shows them in a PR
+// Publishes recorded demos, and screenshots, for a pull request or an issue: uploads them to the `demos`
+// branch of `origin`, never the repository it was forked from, and prints the Markdown that shows them in a
 // description or comment.
 // `demos` has no history in common with `main`, so the videos never reach it. Needs `gh`, logged in.
 //
 //   node scripts/publish-demo.ts --pr <number> <demo.webp>…
+//   node scripts/publish-demo.ts --issue <number> <bug.webp>…
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { basename } from 'node:path';
@@ -33,23 +34,23 @@ function origin(): string {
 /** The `demos` branch, created with one README when it is not there yet. */
 function ensureBranch(repo: string) {
   if (api(`repos/${repo}/git/ref/heads/${BRANCH}`).ok) return;
-  const text = '# Demos\n\nRecorded demos of the web view, for pull requests: `pr-<number>/`. Not part of `main`.\n';
+  const text = '# Demos\n\nRecorded demos of the web view, for pull requests and issues: `pr-<number>/`, `issue-<number>/`. Not part of `main`.\n';
   const tree = api(`repos/${repo}/git/trees`, { tree: [{ path: 'README.md', mode: '100644', type: 'blob', content: text }] });
   const commit = api(`repos/${repo}/git/commits`, { message: 'Demos for pull requests', tree: tree.json.sha, parents: [] });
   const ref = api(`repos/${repo}/git/refs`, { ref: `refs/heads/${BRANCH}`, sha: commit.json.sha });
   if (!ref.ok) throw new Error(`Cannot create the ${BRANCH} branch in ${repo}`);
 }
 
-/** Uploads the files for the PR; the URL of each, in order. Each upload keeps its own name, so an earlier
- * comment still shows what it showed. */
-export function publish(pr: string, files: string[]): string[] {
+/** Uploads the files for the PR or issue, `pr-<number>` or `issue-<number>`; the URL of each, in order. Each
+ * upload keeps its own name, so an earlier comment still shows what it showed. */
+export function publish(folder: string, files: string[]): string[] {
   const repo = origin();
   ensureBranch(repo);
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
   return files.map((file) => {
-    const path = `pr-${pr}/${stamp}-${basename(file)}`;
+    const path = `${folder}/${stamp}-${basename(file)}`;
     const put = api(`repos/${repo}/contents/${path}`, {
-      message: `Demo for #${pr}: ${basename(file)}`,
+      message: `Demo for #${folder.replace(/\D/g, '')}: ${basename(file)}`,
       branch: BRANCH,
       content: readFileSync(file).toString('base64'),
     }, 'PUT');
@@ -59,11 +60,12 @@ export function publish(pr: string, files: string[]): string[] {
 }
 
 if (import.meta.main) {
-  const { values, positionals: files } = parseArgs({ allowPositionals: true, options: { pr: { type: 'string' } } });
-  if (!values.pr || !/^\d+$/.test(values.pr) || files.length === 0) {
-    throw new Error('Usage: node scripts/publish-demo.ts --pr <number> <demo.webp>…');
+  const { values, positionals: files } = parseArgs({ allowPositionals: true, options: { pr: { type: 'string' }, issue: { type: 'string' } } });
+  const number = values.pr ?? values.issue;
+  if (!number || !/^\d+$/.test(number) || (values.pr && values.issue) || files.length === 0) {
+    throw new Error('Usage: node scripts/publish-demo.ts (--pr <number> | --issue <number>) <demo.webp>…');
   }
-  const urls = publish(values.pr, files);
+  const urls = publish(`${values.pr ? 'pr' : 'issue'}-${number}`, files);
   // An image plays inline, in any browser; anything else, a link.
   console.log(files.map((file, index) => {
     const image = /\.(webp|gif|png)$/.exec(file);
