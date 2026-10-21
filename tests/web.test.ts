@@ -153,7 +153,7 @@ async function openPage(repo: string, at = address, query = '') {
   const rescan = async () => { $('form').dispatch('submit'); await done(); };
   /** What the address says is shown. */
   const url = () => shownAt;
-  return { page, $, listed, type, rescan, scans: () => scans, url, chosen: () => ($('skill').children[0] as FakeElement).children[0] };
+  return { page, $, listed, type, rescan, done, scans: () => scans, url, chosen: () => ($('skill').children[0] as FakeElement).children[0] };
 }
 
 test('a filter on the top right: as you type, only the skills whose name contains it, ignoring case; no new scan', async () => {
@@ -837,6 +837,34 @@ test('the groups: a new scan, from the field, leaves out the skill and stays on 
   assert.equal(url(), `?repo=${encodeURIComponent('https://github.com/Team')}&view=groups`);
   assert.equal(chosen().heading, 'release');
   assert.deepEqual(chosen().columns!.map(({ className }) => className), ['column', 'column']);
+});
+
+// #41: the last scan's SKILL.md and group stayed on screen during a new scan, under the new link; its
+// Similar skills → then asked the new scan's groups for a skill that isn't in it.
+test('a new scan clears what the last one showed: both panes say it is scanning, nothing of the last one to click', async () => {
+  const { $, done, url, chosen } = await openGroups('https://github.com/Team', '');
+  choose($, $('skills').querySelectorAll('.skill').find((item) => item.dataset.name === 'security-review')!);
+  click($('to-groups'));
+  assert.equal(chosen().heading, 'release');
+  $('repo').value = 'https://github.com/Team/app';
+  $('form').dispatch('submit');
+  for (const pane of [$('skill'), $('group')]) {
+    assert.deepEqual(pane.children.map(text), ['Scanning…']);
+    assert.deepEqual(pane.querySelectorAll('.similar'), []);
+  }
+  await done();
+  assert.equal($('groups-summary').textContent, 'Team/app · 0 groups · 4 skills');
+  assert.equal(text($('group').children[0]), 'No two skills here share a word of their names.');
+  assert.equal(text(($('skill').children as FakeElement[])[0]), 'broken');
+  assert.equal(url(), `?repo=${encodeURIComponent('https://github.com/Team/app')}&view=groups`);
+});
+
+test('the groups for a skill that is not in the scan: as for no skill, the first group chosen, the address without it', async () => {
+  const id = 'Kotlin/kotlin:.claude/skills/build-bump-gradle-version/SKILL.md';
+  const { url, chosen } = await openGroups('https://github.com/Team', `&view=groups&skill=${encodeURIComponent(id)}`);
+  assert.equal(chosen().heading, 'release');
+  assert.deepEqual(chosen().columns!.map(({ className }) => className), ['column', 'column']);
+  assert.equal(url(), `?repo=${encodeURIComponent('https://github.com/Team')}&view=groups`);
 });
 
 test('Tab in the field completes the sample link on the groups too: the one field, above both views', async () => {

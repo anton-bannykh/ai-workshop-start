@@ -452,6 +452,8 @@
     const repositories = body.organization ? body.repositories : [body];
     const skills = repositories.flatMap((repository) => repository.skills);
     const byId = new Map(skills.map((skill) => [skill.id, skill]));
+    // A skill that isn't in this scan: the groups as for no skill, and the address says so.
+    if (wanted && !byId.has(wanted)) { wanted = ''; remember(); }
     const own = ({ skills, warnings }) => [...warnings, ...skills.flatMap(({ path, warnings }) => warnings.map((text) => `${path}: ${text}`))];
     const warnings = body.organization
       ? [...body.warnings, ...repositories.flatMap((repository) => own(repository).map((text) => `${repository.repository.id}: ${text}`))]
@@ -525,6 +527,9 @@
     $('groups-messages').replaceChildren();
     $('skills').replaceChildren();
     $('groups').replaceChildren();
+    // Nothing of the last scan stays on screen, under the new link, to be clicked into this one.
+    $('skill').replaceChildren(element('p', { className: 'empty' }, 'Scanning…'));
+    $('group').replaceChildren(element('p', { className: 'empty' }, 'Scanning…'));
     applyFilter();
     applyGroupFilter();
     try {
