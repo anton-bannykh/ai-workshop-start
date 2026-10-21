@@ -1,5 +1,5 @@
-// The web view for the visual tests: GitHub answers from tests/helpers.ts, and from HANDBOOK below, a
-// repository with a SKILL.md that shows what the formatting does. Nothing reaches the network, so every
+// The web view for the visual tests: GitHub answers from tests/helpers.ts, from HANDBOOK below, a
+// repository with a SKILL.md that shows what the formatting does, and from PLAYBOOK, one with similar skills. Nothing reaches the network, so every
 // run shows the same pages.
 import { AtlasError } from '../../src/core/errors.ts';
 import { openGitHub, openGitHubOrganization, parseGitHubOwnerUrl, parseGitHubUrl } from '../../src/core/github.ts';
@@ -68,7 +68,70 @@ const HANDBOOK: Recording = {
   'https://api.github.com/repos/JetBrains/no-such-repository': { status: 404, body: { message: 'Not Found' } },
 };
 
-const fetch = replay(HANDBOOK, github);
+const PLAYBOOK_COMMIT = '0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c';
+const PLAYBOOK_RAW = `https://raw.githubusercontent.com/JetBrains/playbook/${PLAYBOOK_COMMIT}/.agents/skills`;
+
+/** Two reviews alike but for what they look for, and two release skills; each pair shares a word of its names. */
+const PLAYBOOK_SKILLS: Record<string, string> = {
+  'code-review': `---
+name: code-review
+description: Review a change for correctness and readability.
+---
+# Code review
+
+Read the whole diff before commenting.
+Check that the tests cover the change.
+Look for naming that hides what the code does.
+Write each comment as a question or a suggestion.
+Approve once every comment is resolved.
+`,
+  'security-review': `---
+name: security-review
+description: Review a change for security issues before it is merged.
+---
+# Security review
+
+Read the whole diff before commenting.
+Look for secrets, tokens and keys in the code.
+Check every input from outside for validation.
+Write each comment as a question or a suggestion.
+Ask the security team when unsure.
+`,
+  release: `---
+name: release
+description: Cut a release of the product.
+---
+# Release
+
+Check that main is green.
+Bump the version.
+Tag it and publish.
+`,
+  'release-notes': `---
+name: release-notes
+description: Write the release notes for a version.
+---
+# Release notes
+
+Check that main is green.
+List every change since the last tag.
+Group them by feature, fix and breaking change.
+`,
+};
+
+/** JetBrains/playbook: code-review and security-review, release and release-notes. */
+const PLAYBOOK: Recording = {
+  'https://api.github.com/repos/JetBrains/playbook': { status: 200, body: { full_name: 'JetBrains/playbook', default_branch: 'main' } },
+  'https://api.github.com/repos/JetBrains/playbook/commits/main': { status: 200, body: { sha: PLAYBOOK_COMMIT } },
+  [`https://api.github.com/repos/JetBrains/playbook/git/trees/${PLAYBOOK_COMMIT}`]: tree({ '.agents': 'p1' }),
+  'https://api.github.com/repos/JetBrains/playbook/git/trees/p1': tree({ skills: 'p2' }),
+  'https://api.github.com/repos/JetBrains/playbook/git/trees/p2?recursive=1':
+    tree(Object.fromEntries(Object.keys(PLAYBOOK_SKILLS).flatMap((name, index) => [[name, `p${index + 3}`], [`${name}/SKILL.md`, null]]))),
+  ...Object.fromEntries(Object.entries(PLAYBOOK_SKILLS).map(([name, text]) => [`${PLAYBOOK_RAW}/${name}/SKILL.md`, { status: 200, body: text }])),
+  ...lastModified('JetBrains/playbook', PLAYBOOK_COMMIT, Object.fromEntries(Object.keys(PLAYBOOK_SKILLS).map((name) => [`.agents/skills/${name}`, '2026-08-01T12:00:00Z']))),
+};
+
+const fetch = replay({ ...HANDBOOK, ...PLAYBOOK }, github);
 const open = (input: string) => {
   if (parseGitHubOwnerUrl(input)) return openGitHubOrganization(input, { fetch, token: 'test' });
   if (parseGitHubUrl(input)) return openGitHub(input, { fetch, token: 'test' });

@@ -97,3 +97,64 @@ test('/?repo=<link> opens the page with that repository scanned', async ({ page 
   await expect(page.locator('#summary')).toHaveText('JetBrains/example · 1 skill');
   await expect(page).toHaveScreenshot('link.png');
 });
+
+test('the button to the page of groups', async ({ page }) => {
+  await scan(page, 'https://github.com/JetBrains/playbook');
+  await page.locator('#to-groups').click();
+  await expect(page).toHaveURL(`/groups?repo=${encodeURIComponent('https://github.com/JetBrains/playbook')}`);
+  await expect(page.locator('#summary')).toHaveText('JetBrains/playbook · 2 groups · 4 skills');
+});
+
+/** The page of groups, with the repository scanned. */
+async function groups(page: Page, repo: string) {
+  await page.goto(`/groups?repo=${encodeURIComponent(repo)}`);
+  await expect(page.locator('#scan')).toBeEnabled();
+  await expect(page.locator('#summary')).not.toHaveText('Scanning…');
+}
+
+const group = (page: Page, words: string) => page.locator('#groups li.group', { has: page.locator('.words', { hasText: words }) });
+
+test('groups: the skills whose names share a word, the first group side by side, what all share in grey, what is only one’s marked', async ({ page }) => {
+  await groups(page, 'https://github.com/JetBrains/playbook');
+  await expect(page.locator('#summary')).toHaveText('JetBrains/playbook · 2 groups · 4 skills');
+  await expect(page.locator('#group h2')).toHaveText('release');
+  await expect(page).toHaveScreenshot('groups.png');
+});
+
+test('groups: another group chosen', async ({ page }) => {
+  await groups(page, 'https://github.com/JetBrains/playbook');
+  await group(page, 'review').click();
+  await expect(page.locator('#group h2')).toHaveText('review');
+  await expect(page).toHaveScreenshot('groups-review.png');
+});
+
+test('groups: two skills compared, line by line', async ({ page }) => {
+  await groups(page, 'https://github.com/JetBrains/playbook');
+  await group(page, 'review').click();
+  await page.locator('#tab-two').click();
+  await expect(page.locator('#pair .stats')).toHaveText('2 lines the same · 6 only in the first · 6 only in the second');
+  await expect(page).toHaveScreenshot('groups-compare.png');
+});
+
+test('groups: the filter keeps the groups with a skill whose name contains it', async ({ page }) => {
+  await groups(page, 'https://github.com/JetBrains/playbook');
+  await page.locator('#filter').fill('SECUR');
+  await expect(page.locator('#summary')).toHaveText('JetBrains/playbook · 1 of 2 groups · 4 skills');
+  await expect(page).toHaveScreenshot('groups-filter.png');
+});
+
+test('groups: no two skills share a word of their names', async ({ page }) => {
+  await groups(page, 'https://github.com/JetBrains/handbook');
+  await expect(page.locator('#group .empty')).toHaveText('No two skills here share a word of their names.');
+  await expect(page).toHaveScreenshot('groups-none.png');
+});
+
+test('groups opened from a skill’s link: its group chosen, the skill marked', async ({ page }) => {
+  await scan(page, 'https://github.com/JetBrains/playbook');
+  await skill(page, 'security-review').locator('.name').click();
+  await page.locator('#skill .similar').click();
+  await expect(page).toHaveURL(/\/groups\?repo=.*&skill=/);
+  await expect(page.locator('#group h2')).toHaveText('review');
+  await expect(page.locator('.column.wanted .name')).toHaveText('security-review');
+  await expect(page).toHaveScreenshot('groups-skill.png');
+});

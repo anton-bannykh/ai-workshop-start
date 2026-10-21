@@ -11,7 +11,12 @@
   body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; margin: 0; overflow: hidden; font: 15px/1.5 system-ui, sans-serif; }
   header { display: flex; flex: none; flex-wrap: wrap; align-items: flex-end; gap: 12px 24px; padding: 16px 24px; border-bottom: 1px solid var(--line); }
   #scanner { flex: 1 1 480px; }
-  h1 { margin: 0 0 12px; font-size: 20px; }
+  .title { display: flex; align-items: center; gap: 16px; margin: 0 0 12px; }
+  h1 { margin: 0; font-size: 20px; }
+  /* The two pages, as buttons: the skills, and the same skills grouped. */
+  nav { display: flex; gap: 4px; font-size: 14px; }
+  nav a { padding: 1px 12px; line-height: 1.4; border: 1px solid var(--line); border-radius: 6px; color: inherit; text-decoration: none; }
+  nav a[aria-current="page"] { background: var(--accent); border-color: var(--accent); color: white; }
   form { display: flex; gap: 8px; max-width: 900px; }
   input { flex: 1; padding: 8px 10px; font: inherit; border: 1px solid var(--line); border-radius: 6px; }
   #filter { flex: 0 1 260px; margin-left: auto; }
@@ -44,6 +49,7 @@
   /* Out of the way: there, but in grey. */
   .modified { color: var(--muted); font-size: 12px; font-weight: normal; }
   .link { display: block; font-size: 12px; word-break: break-all; color: var(--accent); }
+  .similar { display: inline-block; margin-top: 4px; font-size: 13px; color: var(--accent); }
   #skill { min-height: 0; padding: 16px 24px; overflow: auto; }
   #skill h2 { margin: 0 0 8px; font-size: 18px; }
   pre { white-space: pre-wrap; word-break: break-word; padding: 16px; border: 1px solid var(--line); border-radius: 6px;
@@ -74,7 +80,10 @@
 <body>
 <header>
   <div id="scanner">
-    <h1>Skill Atlas</h1>
+    <div class="title">
+      <h1>Skill Atlas</h1>
+      <nav><a href="/" aria-current="page">Skills</a><a id="to-groups" href="/groups">Groups</a></nav>
+    </div>
     <form id="form">
       <input id="repo" name="repo" type="text" required autofocus
              placeholder="https://github.com/JetBrains/kotlin" aria-label="Repository or organization link">
@@ -136,7 +145,9 @@
     };
     select();
     const date = modified(skill, 'Last modified ');
-    $('skill').replaceChildren(element('h2', {}, skill.name), link(skill), date && element('div', {}, date), ...skill.warnings.map(warning), tabs, formatted, raw);
+    // The skills whose names share a word with this one's, on the page of groups, this one marked there.
+    const similar = element('a', { className: 'similar', href: `/groups?repo=${encodeURIComponent(lastScanned)}&skill=${encodeURIComponent(skill.id)}` }, 'Similar skills →');
+    $('skill').replaceChildren(element('h2', {}, skill.name), link(skill), date && element('div', {}, date), similar, ...skill.warnings.map(warning), tabs, formatted, raw);
   }
 
   const count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
@@ -234,7 +245,11 @@
       withSkills ? 'Open a repository, then choose a skill to see its SKILL.md.' : 'No skills here.'));
   }
 
+  /** What was scanned last: the page of groups scans the same. */
+  let lastScanned = '';
+
   async function scan(repo) {
+    lastScanned = repo;
     $('scan').disabled = true;
     summarize = null;
     $('summary').textContent = 'Scanning…';
@@ -281,15 +296,19 @@
     $('repo').setSelectionRange(completed.length, completed.length);
   });
 
+  /** The same repository's skills, grouped by the words their names share. */
+  const toGroups = (repo) => { $('to-groups').href = repo ? `/groups?repo=${encodeURIComponent(repo)}` : '/groups'; };
+
   $('form').addEventListener('submit', (event) => {
     event.preventDefault();
     const repo = $('repo').value.trim();
     history.replaceState(null, '', `?repo=${encodeURIComponent(repo)}`);
+    toGroups(repo);
     scan(repo);
   });
   // A link to the page can name the repository: /?repo=<URL>.
   const initial = new URLSearchParams(location.search).get('repo');
-  if (initial) { $('repo').value = initial; scan(initial); }
+  if (initial) { $('repo').value = initial; toGroups(initial); scan(initial); }
 </script>
 </body>
 </html>
