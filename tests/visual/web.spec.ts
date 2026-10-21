@@ -98,25 +98,43 @@ test('/?repo=<link> opens the page with that repository scanned', async ({ page 
   await expect(page).toHaveScreenshot('link.png');
 });
 
-test('the button to the page of groups', async ({ page }) => {
+test('Groups: the same scan grouped, in the page; the field and the filter stay, and the skills as they were', async ({ page }) => {
   await scan(page, 'https://github.com/JetBrains/playbook');
+  await page.locator('#filter').fill('review');
+  await skill(page, 'security-review').locator('.name').click();
+  let scans = 0;
+  page.on('request', (request) => { if (request.url().includes('/api/')) scans++; });
   await page.locator('#to-groups').click();
-  await expect(page).toHaveURL(`/groups?repo=${encodeURIComponent('https://github.com/JetBrains/playbook')}`);
-  await expect(page.locator('#summary')).toHaveText('JetBrains/playbook · 2 groups · 4 skills');
+  await expect(page).toHaveURL(`/?repo=${encodeURIComponent('https://github.com/JetBrains/playbook')}&view=groups`);
+  await expect(page.locator('#groups-summary')).toHaveText('JetBrains/playbook · 1 of 2 groups · 4 skills');
+  await expect(page.locator('#repo')).toHaveValue('https://github.com/JetBrains/playbook');
+  await expect(page.locator('#filter')).toHaveValue('review');
+  await expect(page).toHaveScreenshot('groups-kept.png');
+  await page.locator('#to-skills').click();
+  await expect(page.locator('#skill h2')).toHaveText('security-review');
+  await expect(page.locator('#summary')).toHaveText('JetBrains/playbook · 2 of 4 skills');
+  expect(scans).toBe(0);
 });
 
-/** The page of groups, with the repository scanned. */
+test('Tab completes the sample link on the groups too', async ({ page }) => {
+  await page.goto('/?view=groups');
+  await page.locator('#repo').press('Tab');
+  await expect(page.locator('#repo')).toHaveValue('https://github.com/JetBrains/kotlin');
+  await expect(page.locator('#groups-view')).toBeVisible();
+});
+
+/** The groups, with the repository scanned. */
 async function groups(page: Page, repo: string) {
-  await page.goto(`/groups?repo=${encodeURIComponent(repo)}`);
+  await page.goto(`/?repo=${encodeURIComponent(repo)}&view=groups`);
   await expect(page.locator('#scan')).toBeEnabled();
-  await expect(page.locator('#summary')).not.toHaveText('Scanning…');
+  await expect(page.locator('#groups-summary')).not.toHaveText('Scanning…');
 }
 
 const group = (page: Page, words: string) => page.locator('#groups li.group', { has: page.locator('.words', { hasText: words }) });
 
 test('groups: the skills whose names share a word, the first group side by side, what all share in grey, what is only one’s marked', async ({ page }) => {
   await groups(page, 'https://github.com/JetBrains/playbook');
-  await expect(page.locator('#summary')).toHaveText('JetBrains/playbook · 2 groups · 4 skills');
+  await expect(page.locator('#groups-summary')).toHaveText('JetBrains/playbook · 2 groups · 4 skills');
   await expect(page.locator('#group h2')).toHaveText('release');
   await expect(page).toHaveScreenshot('groups.png');
 });
@@ -139,7 +157,7 @@ test('groups: two skills compared, line by line', async ({ page }) => {
 test('groups: the filter keeps the groups with a skill whose name contains it', async ({ page }) => {
   await groups(page, 'https://github.com/JetBrains/playbook');
   await page.locator('#filter').fill('SECUR');
-  await expect(page.locator('#summary')).toHaveText('JetBrains/playbook · 1 of 2 groups · 4 skills');
+  await expect(page.locator('#groups-summary')).toHaveText('JetBrains/playbook · 1 of 2 groups · 4 skills');
   await expect(page).toHaveScreenshot('groups-filter.png');
 });
 
@@ -149,11 +167,14 @@ test('groups: no two skills share a word of their names', async ({ page }) => {
   await expect(page).toHaveScreenshot('groups-none.png');
 });
 
-test('groups opened from a skill’s link: its group chosen, the skill marked', async ({ page }) => {
+test('groups opened from a skill’s link: its group chosen, the skill marked; no new scan', async ({ page }) => {
   await scan(page, 'https://github.com/JetBrains/playbook');
   await skill(page, 'security-review').locator('.name').click();
+  let scans = 0;
+  page.on('request', (request) => { if (request.url().includes('/api/')) scans++; });
   await page.locator('#skill .similar').click();
-  await expect(page).toHaveURL(/\/groups\?repo=.*&skill=/);
+  await expect(page).toHaveURL(/\/\?repo=.*&view=groups&skill=/);
+  expect(scans).toBe(0);
   await expect(page.locator('#group h2')).toHaveText('review');
   await expect(page.locator('.column.wanted .name')).toHaveText('security-review');
   await expect(page).toHaveScreenshot('groups-skill.png');

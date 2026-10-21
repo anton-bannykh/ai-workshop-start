@@ -1,5 +1,6 @@
 // Groups: from a skill of JetBrains/kotlin, its similar skills, those whose names share a word, side by
-// side; another group, two of its skills compared line by line, the filter, and back to the skills.
+// side, in the page, no new scan; another group, two of its skills compared line by line, the filter,
+// back to the skills as they were, and Tab in the field on the groups.
 // Live GitHub: set GITHUB_TOKEN for its rate limit.
 import type { Demo } from '../demo.ts';
 
@@ -10,7 +11,7 @@ export default async function groups({ page, click, move, type, scroll, pause }:
   await page.locator('#skills li.skill').first().waitFor({ timeout: 60_000 });
   await pause(800);
 
-  // A skill, then its similar skills: the page of groups, the skill marked in its first group.
+  // A skill, then its similar skills: the groups, the skill marked in its first group.
   await click(page.locator('#skills li.skill .name', { hasText: 'build-tools-bump-gradle-api' }));
   await pause(800);
   await click(page.locator('#skill .similar'));
@@ -33,9 +34,19 @@ export default async function groups({ page, click, move, type, scroll, pause }:
   await page.keyboard.press('Escape');
   await pause(1500);
 
-  await type(page.locator('#filter'), 'analysis');
+  await type(page.locator('#filter'), 'gradle');
   await pause(1200);
+  // Back to the skills: the same filter, the same skill chosen; and to the groups again, as they were.
   await click(page.locator('#to-skills'));
-  await page.locator('#skills li.skill').first().waitFor({ timeout: 60_000 });
-  await pause(800);
+  await pause(1500);
+  await click(page.locator('#to-groups'));
+  await pause(1500);
+
+  // The field is the same on the groups: Tab completes the sample link.
+  await click(page.locator('#repo'));
+  await page.keyboard.press('Control+A');
+  await page.keyboard.press('Backspace');
+  await pause(500);
+  await page.keyboard.press('Tab');
+  await pause(1200);
 }

@@ -1,6 +1,6 @@
-// The web view: one page with a field for a repository link, and the scan as JSON behind it; another,
-// /groups, with similar skills side by side. Local only, on 127.0.0.1; nothing is stored. The same core
-// as the CLI: fetch → find → parse.
+// The web view: one page with a field for a repository link, and the scan as JSON behind it: the skills,
+// and the same skills grouped, similar ones side by side. Local only, on 127.0.0.1; nothing is stored. The
+// same core as the CLI: fetch → find → parse.
 import { readFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { AtlasError } from './core/errors.ts';
@@ -10,7 +10,6 @@ import { scan, scanOrganization, type OrganizationSource, type Progress, type So
 import { renderSkill } from './markdown.ts';
 
 const PAGE = readFileSync(new URL('./web/index.html', import.meta.url));
-const GROUPS_PAGE = readFileSync(new URL('./web/groups.html', import.meta.url));
 const HOST = '127.0.0.1';
 
 /** The web view's server, not yet listening; `open` is what the CLI's `scan` opens. */
@@ -28,9 +27,7 @@ export function createWebServer(open: (input: string) => Promise<Source | Organi
     const url = new URL(request.url ?? '/', `http://${host}`);
     if (request.method !== 'GET') return json(405, { error: `Not allowed: ${request.method}` });
     if (url.pathname === '/') return send(200, 'text/html; charset=utf-8', PAGE);
-    if (url.pathname === '/groups') return send(200, 'text/html; charset=utf-8', GROUPS_PAGE);
-    const answer = ANSWERS[url.pathname];
-    if (!answer) return json(404, { error: `Not found: ${url.pathname}` });
+    if (url.pathname !== '/api/scan') return json(404, { error: `Not found: ${url.pathname}` });
 
     const input = url.searchParams.get('repo')?.trim();
     if (!input) return json(400, { error: 'Enter a GitHub repository or organization URL, or a directory' });
@@ -43,14 +40,14 @@ export function createWebServer(open: (input: string) => Promise<Source | Organi
       response.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-store' });
       const line = (value: unknown) => response.write(`${JSON.stringify(value)}\n`);
       try {
-        line({ result: await answer(open, input, (progress) => line({ progress })) });
+        line({ result: await scanned(open, input, (progress) => line({ progress })) });
       } catch (error) {
         line(failure(error));
       }
       return response.end();
     }
     try {
-      json(200, await answer(open, input));
+      json(200, await scanned(open, input));
     } catch (error) {
       const { status, error: message } = failure(error);
       json(status, { error: message });
@@ -58,12 +55,10 @@ export function createWebServer(open: (input: string) => Promise<Source | Organi
   });
 }
 
-type Answer = (open: (input: string) => Promise<Source | OrganizationSource>, input: string, progress?: (progress: Progress) => void) => Promise<unknown>;
-
-/** The API: the scan, and the same scan grouped. */
-const ANSWERS: Record<string, Answer> = { '/api/scan': scanned, '/api/groups': grouped };
-
-/** What `/api/scan` answers: the repository, or the organization's repositories, with the warnings. */
+/**
+ * What `/api/scan` answers: the repository, or the organization's repositories, with the warnings; and
+ * the groups of skills whose names share words, every repository's skills together.
+ */
 async function scanned(open: (input: string) => Promise<Source | OrganizationSource>, input: string, progress?: (progress: Progress) => void) {
   const source = await open(input);
   if ('organization' in source) {
@@ -73,41 +68,19 @@ async function scanned(open: (input: string) => Promise<Source | OrganizationSou
       repositories: repositories.map(({ repository, skills, warnings }) => ({ ...withPages(repository, skills), warnings })),
       scanned,
       warnings,
+      groups: grouped(repositories.flatMap(({ skills }) => skills)),
     };
   }
   const { repository, skills, warnings } = await scan(source);
-  return { ...withPages(repository, skills), warnings };
+  return { ...withPages(repository, skills), warnings, groups: grouped(skills) };
 }
 
-/**
- * What `/api/groups` answers: the repository, or the organization, how many skills it has, and the
- * groups of them whose names share words, every repository's skills together; each skill with its
- * link and its SKILL.md line by line. `warnings`: all of them, each naming where it comes from.
- */
-async function grouped(open: (input: string) => Promise<Source | OrganizationSource>, input: string, progress?: (progress: Progress) => void) {
-  const source = await open(input);
-  const result = 'organization' in source ? await scanOrganization(source, progress) : await scan(source);
-  const repositories = 'organization' in result ? result.repositories : [result];
-  const byId = new Map(repositories.map(({ repository }) => [repository.id, repository]));
-  const skills = repositories.flatMap(({ skills }) => skills);
-  const own = ({ skills, warnings }: { skills: Skill[]; warnings: string[] }) =>
-    [...warnings, ...skills.flatMap(({ path, warnings }) => warnings.map((warning) => `${path}: ${warning}`))];
-  const groups = groupSkills(skills).map(({ words, skills }) => ({
+/** The groups of skills whose names share words; each skill by its id, with the kind of each line of its SKILL.md there. */
+function grouped(skills: Skill[]) {
+  return groupSkills(skills).map(({ words, skills }) => ({
     words,
-    skills: skills.map(({ skill, lines }) => {
-      const { id, repository, name, description, path } = skill;
-      return { id, repository, name, description, path, link: skillLinkParts(byId.get(repository)!, skill), lines };
-    }),
+    skills: skills.map(({ skill, lines }) => ({ id: skill.id, kinds: lines.map(({ kind }) => kind) })),
   }));
-  return 'organization' in result
-    ? {
-      organization: result.organization,
-      scanned: result.scanned,
-      skills: skills.length,
-      groups,
-      warnings: [...result.warnings, ...result.repositories.flatMap((scanned) => own(scanned).map((warning) => `${scanned.repository.id}: ${warning}`))],
-    }
-    : { repository: result.repository, skills: skills.length, groups, warnings: own(result) };
 }
 
 /** The repository and its skills, each with its link and its SKILL.md as HTML. */

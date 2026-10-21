@@ -81,6 +81,7 @@ class FakeElement {
   open = false;
   disabled = false;
   value = '';
+  placeholder = '';
   textContent = '';
   title = '';
   href = '';
@@ -103,11 +104,11 @@ class FakeElement {
 }
 
 /**
- * Runs the page's script on a fake document, with `<path>?repo=<repo><query>` and the API answered by
- * the web view at `at`: the page of skills, or the page of groups.
+ * Runs the page's script on a fake document, with `/?repo=<repo><query>` and the API answered by the
+ * web view at `at`.
  */
-async function openPage(repo: string, at = address, path = '/', query = '') {
-  const page = (await get(path)).text;
+async function openPage(repo: string, at = address, query = '') {
+  const page = (await get('/')).text;
   const script = /<script type="module">([\s\S]*?)<\/script>/.exec(page)?.[1] ?? '';
   const elements = new Map<string, FakeElement>();
   const document = {
@@ -115,6 +116,7 @@ async function openPage(repo: string, at = address, path = '/', query = '') {
       if (!elements.has(id)) {
         const node = new FakeElement();
         node.hidden = new RegExp(`id="${id}"[^>]*\\shidden[\\s>]`).test(page);
+        node.placeholder = new RegExp(`id="${id}"[^>]*\\splaceholder="([^"]*)"`).exec(page)?.[1] ?? '';
         elements.set(id, node);
       }
       return elements.get(id)!;
@@ -123,9 +125,10 @@ async function openPage(repo: string, at = address, path = '/', query = '') {
   };
   let scanned: Promise<unknown> = Promise.resolve();
   let scans = 0;
+  let shownAt = '';
   const context = {
     document,
-    history: { replaceState() {} },
+    history: { replaceState(_state: unknown, _title: string, url: string) { shownAt = url; } },
     location: { search: `?repo=${encodeURIComponent(repo)}${query}` },
     URLSearchParams,
     TextDecoderStream,
@@ -148,7 +151,9 @@ async function openPage(repo: string, at = address, path = '/', query = '') {
   };
   const type = (text: string) => { $('filter').value = text; $('filter').dispatch('input'); };
   const rescan = async () => { $('form').dispatch('submit'); await done(); };
-  return { page, $, listed, type, rescan, scans: () => scans, chosen: () => ($('skill').children[0] as FakeElement).children[0] };
+  /** What the address says is shown. */
+  const url = () => shownAt;
+  return { page, $, listed, type, rescan, scans: () => scans, url, chosen: () => ($('skill').children[0] as FakeElement).children[0] };
 }
 
 test('a filter on the top right: as you type, only the skills whose name contains it, ignoring case; no new scan', async () => {
@@ -590,68 +595,42 @@ const teamServer = createWebServer(async (input) => {
 const teamAddress = await listen(teamServer, 0);
 after(() => teamServer.close());
 
-async function groupsOf(repo: string) {
-  const response = await fetch(new URL(`/api/groups?repo=${encodeURIComponent(repo)}`, teamAddress));
+async function scanOf(repo: string) {
+  const response = await fetch(new URL(`/api/scan?repo=${encodeURIComponent(repo)}`, teamAddress));
   return { status: response.status, body: JSON.parse(await response.text()) };
 }
 
-test('/api/groups: the repository, how many skills, the groups whose names share a word, and the warnings, each naming its SKILL.md', async () => {
-  const { status, body } = await groupsOf('https://github.com/Team/app');
+test('/api/scan: the groups of skills whose names share a word; none when no two do', async () => {
+  const { status, body } = await scanOf('https://github.com/Team/app');
   assert.equal(status, 200);
   assert.equal(body.repository.id, 'Team/app');
-  assert.equal(body.skills, 4);
+  assert.equal(body.skills.length, 4);
   // No two of its skills share a word of their names.
   assert.deepEqual(body.groups, []);
-  assert.equal(body.warnings.length, 2);
-  assert.equal(body.warnings[0], 'listing left a file out');
-  assert.match(body.warnings[1], /^\.agents\/skills\/broken\/SKILL\.md: malformed front matter: .*; using the directory name$/);
 });
 
-test('/api/groups for an organization: the groups across all its repositories, each skill with its link and its lines', async () => {
-  const { status, body } = await groupsOf('https://github.com/Team');
+test('/api/scan for an organization: the groups across all its repositories, each skill by its id, a kind for each of its lines', async () => {
+  const { status, body } = await scanOf('https://github.com/Team');
   assert.equal(status, 200);
-  assert.deepEqual(body.organization, { id: 'Team', url: 'https://github.com/Team' });
-  assert.equal(body.scanned, 3);
-  assert.equal(body.skills, 6);
   assert.deepEqual(body.groups.map(({ words, skills }: { words: string[]; skills: { id: string }[] }) => [words, skills.map(({ id }) => id)]), [
     [['release'], ['Team/app:.agents/skills/release/SKILL.md', 'Team/web:.agents/skills/release-notes/SKILL.md']],
     [['review'], ['Team/app:.agents/skills/code-review/SKILL.md', 'Team/web:.agents/skills/security-review/SKILL.md']],
   ]);
+  // ---, name, description, ---, Read the whole diff., Look for secrets., Be kind.
   assert.deepEqual(body.groups[1].skills[1], {
     id: 'Team/web:.agents/skills/security-review/SKILL.md',
-    repository: 'Team/web',
-    name: 'security-review',
-    description: 'Review it for security.',
-    path: '.agents/skills/security-review/SKILL.md',
-    link: { base: 'https://github.com/Team/web/blob/c0ffee/', path: '.agents/skills/security-review/SKILL.md' },
-    lines: [
-      { text: '---', kind: 'all' },
-      { text: 'name: security-review', kind: 'own' },
-      { text: 'description: Review it for security.', kind: 'own' },
-      { text: '---', kind: 'all' },
-      { text: 'Read the whole diff.', kind: 'all' },
-      { text: 'Look for secrets.', kind: 'own' },
-      { text: 'Be kind.', kind: 'all' },
-    ],
+    kinds: ['all', 'own', 'own', 'all', 'all', 'own', 'all'],
   });
-  // The organization's own warnings, then each repository's, naming it.
-  assert.equal(body.warnings.length, 3);
-  assert.deepEqual(body.warnings.slice(0, 2), ['GitHub counts 4 repositories; 3 listed', 'Team/app: listing left a file out']);
-  assert.match(body.warnings[2], /^Team\/app: \.agents\/skills\/broken\/SKILL\.md: malformed front matter: /);
+  // The skills themselves are the repositories', once.
+  assert.equal(body.repositories.flatMap(({ skills }: { skills: unknown[] }) => skills).length, 6);
 });
 
-test('/api/groups&progress: how far it is as each repository is done, then the result; a clear message → 400', async () => {
-  const response = await fetch(new URL(`/api/groups?repo=${encodeURIComponent('https://github.com/Team')}&progress`, teamAddress));
-  assert.match(response.headers.get('content-type') ?? '', /^application\/x-ndjson/);
+test('/api/scan&progress: the groups in the result; the page of groups is no page of its own', async () => {
+  const response = await fetch(new URL(`/api/scan?repo=${encodeURIComponent('https://github.com/Team')}&progress`, teamAddress));
   const lines = (await response.text()).trim().split('\n').map((line) => JSON.parse(line));
   assert.deepEqual(lines.at(-2), { progress: { done: 3, total: 3, skills: 6 } });
   assert.equal(lines.at(-1).result.groups.length, 2);
-  assert.deepEqual(await groupsOf(''), { status: 400, body: { error: 'Enter a GitHub repository or organization URL, or a directory' } });
-  assert.deepEqual(await groupsOf('https://github.com/Team/none'), { status: 400, body: { error: 'Repository not found: https://github.com/Team/none' } });
-  const page = await fetch(new URL('/groups', teamAddress));
-  assert.equal(page.status, 200);
-  assert.match(await page.text(), /<title>Skill Atlas · Groups<\/title>/);
-  assert.equal((await fetch(new URL('/groups/more', teamAddress))).status, 404);
+  for (const path of ['/groups', '/api/groups']) assert.equal((await fetch(new URL(path, teamAddress))).status, 404);
 });
 
 /** The first element under `node`, itself included, with that id. */
@@ -665,9 +644,11 @@ const byId = (node: FakeElement | string, id: string): FakeElement | undefined =
   return undefined;
 };
 
-/** The page of groups, opened for `repo`, and what it shows. */
-async function openGroups(repo: string, query = '') {
-  const opened = await openPage(repo, teamAddress, '/groups', query);
+const click = (node: FakeElement, event: object = {}) => { for (const listener of node.listeners.click ?? []) listener({ preventDefault() {}, ...event }); };
+
+/** The page, opened for `repo` with `query`, and what its groups show. */
+async function openGroups(repo: string, query = '&view=groups') {
+  const opened = await openPage(repo, teamAddress, query);
   const { $ } = opened;
   const items = () => $('groups').children as FakeElement[];
   return {
@@ -687,9 +668,11 @@ async function openGroups(repo: string, query = '') {
   };
 }
 
-test('the page of groups: each group, its words and its skills; the first chosen, its skills side by side, each line marked', async () => {
+test('the groups: each group, its words and its skills; the first chosen, its skills side by side, each line marked', async () => {
   const { $, groups, chosen, pane } = await openGroups('https://github.com/Team');
-  assert.equal($('summary').textContent, 'Team · 2 groups · 6 skills · 3 scanned');
+  assert.equal($('skills-view').hidden, true);
+  assert.equal($('groups-view').hidden, false);
+  assert.equal($('groups-summary').textContent, 'Team · 2 groups · 6 skills · 3 scanned');
   assert.deepEqual(groups(), ['release2 skills / release, release-notes', 'review2 skills / code-review, security-review']);
   // The words the group shares are marked in each name.
   const members = $('groups').children[1] as FakeElement;
@@ -703,14 +686,17 @@ test('the page of groups: each group, its words and its skills; the first chosen
   // Side by side first; the other tab hidden.
   assert.equal(pane('side-by-side').hidden, false);
   assert.equal(pane('two').hidden, true);
-  // The warnings, out of the way.
-  assert.equal(text(($('messages').children[0] as FakeElement).children[0]), '❗ 3 warnings');
+  // The warnings, all of them, out of the way; each naming its repository, and its SKILL.md.
+  const warnings = $('groups-messages').children[0] as FakeElement;
+  assert.equal(text(warnings.children[0]), '❗ 3 warnings');
+  assert.deepEqual(warnings.children.slice(1, 3).map(text), ['GitHub counts 4 repositories; 3 listed', 'Team/app: listing left a file out']);
+  assert.match(text(warnings.children[3]), /^Team\/app: \.agents\/skills\/broken\/SKILL\.md: malformed front matter: /);
 });
 
-test('the page of groups: Compare two, the first two at first, any two chosen; the lines the same, and each one\'s own', async () => {
+test('the groups: Compare two, the first two at first, any two chosen; the lines the same, and each one\'s own', async () => {
   const { $, items, pane } = await openGroups('https://github.com/Team');
   for (const listener of items()[1].listeners.keydown) listener({ key: 'Enter' });
-  for (const listener of pane('tab-two').listeners.click) listener({});
+  click(pane('tab-two'));
   assert.equal(pane('side-by-side').hidden, true);
   assert.equal(pane('two').hidden, false);
   const rows = () => (pane('diff').children[0] as FakeElement).children.map((row) => `${(row as FakeElement).className} ${text(row)}`);
@@ -733,26 +719,28 @@ test('the page of groups: Compare two, the first two at first, any two chosen; t
   pane('right').value = '0';
   pane('left').dispatch('change');
   assert.equal(rows()[1], 'removed name: security-review');
-  assert.equal($('summary').textContent, 'Team · 2 groups · 6 skills · 3 scanned');
+  assert.equal($('groups-summary').textContent, 'Team · 2 groups · 6 skills · 3 scanned');
 });
 
-test('the page of groups: the filter keeps the groups with a skill whose name contains it, ignoring case; no new scan', async () => {
+test('the groups: the same filter keeps the groups with a skill whose name contains it, ignoring case; no new scan', async () => {
   const { $, groups, type, scans } = await openGroups('https://github.com/Team');
   type(' SECUR ');
   assert.deepEqual(groups(), ['review2 skills / code-review, security-review']);
-  assert.equal($('summary').textContent, 'Team · 1 of 2 groups · 6 skills · 3 scanned');
-  assert.equal($('no-match').hidden, true);
+  assert.equal($('groups-summary').textContent, 'Team · 1 of 2 groups · 6 skills · 3 scanned');
+  assert.equal($('groups-no-match').hidden, true);
+  // The skills are filtered by it too, for when they are back.
+  assert.match($('summary').textContent, /^Team · 1 of 6 skills/);
   type('deploy');
   assert.deepEqual(groups(), []);
-  assert.equal($('no-match').hidden, false);
+  assert.equal($('groups-no-match').hidden, false);
   type('');
   assert.equal(groups().length, 2);
   assert.equal(scans(), 1);
 });
 
-test('the page of groups opened for a skill: the first of its groups chosen, the skill marked there and compared first', async () => {
+test('the groups opened for a skill: the first of its groups chosen, the skill marked there and compared first', async () => {
   const id = 'Team/web:.agents/skills/security-review/SKILL.md';
-  const { $, chosen, pane } = await openGroups('https://github.com/Team', `&skill=${encodeURIComponent(id)}`);
+  const { $, chosen, pane } = await openGroups('https://github.com/Team', `&view=groups&skill=${encodeURIComponent(id)}`);
   assert.equal(text(($('group').children as FakeElement[])[0]), 'review');
   assert.deepEqual(chosen().columns!.map(({ className }) => className), ['column', 'column wanted']);
   const [release, review] = $('groups').children as FakeElement[];
@@ -762,29 +750,102 @@ test('the page of groups opened for a skill: the first of its groups chosen, the
   assert.equal(pane('right').value, '0');
 });
 
-test('the page of groups opened for a skill in no group, or for a repository with none: it says so', async () => {
-  const deploy = await openGroups('https://github.com/Team', `&skill=${encodeURIComponent('Team/app:.agents/skills/deploy/SKILL.md')}`);
+test('the groups for a skill in no group, or for a repository with none: they say so', async () => {
+  const deploy = await openGroups('https://github.com/Team', `&view=groups&skill=${encodeURIComponent('Team/app:.agents/skills/deploy/SKILL.md')}`);
   assert.equal(text(deploy.$('group').children[0]), 'No other skill here shares a word of its name with .agents/skills/deploy/SKILL.md.');
   const app = await openGroups('https://github.com/Team/app');
-  assert.equal(app.$('summary').textContent, 'Team/app · 0 groups · 4 skills');
+  assert.equal(app.$('groups-summary').textContent, 'Team/app · 0 groups · 4 skills');
   assert.equal(text(app.$('group').children[0]), 'No two skills here share a word of their names.');
   const missing = await openGroups('https://github.com/Team/none');
-  assert.equal(text(missing.$('messages').children[0]), 'Repository not found: https://github.com/Team/none');
+  assert.equal(text(missing.$('groups-messages').children[0]), 'Repository not found: https://github.com/Team/none');
 });
 
-test('a button to the page of groups, for the repository scanned; each skill a link to its similar skills there', async () => {
-  const { page, $, chosen } = await openPage('https://github.com/JetBrains/example');
-  assert.match(page, /<nav><a href="\/" aria-current="page">Skills<\/a><a id="to-groups" href="\/groups">Groups<\/a><\/nav>/);
-  assert.equal($('to-groups').href, `/groups?repo=${encodeURIComponent('https://github.com/JetBrains/example')}`);
-  assert.equal(chosen(), 'commits');
-  const similar = ($('skill').children as FakeElement[]).find((child) => child.className === 'similar')!;
+// Review of #25: the groups were a page of their own, which scanned again and lost the page's state.
+test('Skills / Groups: two views of the one scan; switching keeps the field, the filter, and each view as it was left', async () => {
+  const { page, $, type, scans, url, items } = await openGroups('https://github.com/Team', '');
+  assert.match(page, /<nav><button id="to-skills" type="button" aria-current="page">Skills<\/button><button id="to-groups" type="button">Groups<\/button><\/nav>/);
+  // One field, one Tab, one filter: in the header, above both views.
+  assert.equal(page.match(/<input id="repo"/g)?.length, 1);
+  assert.equal(page.match(/<input id="filter"/g)?.length, 1);
+  assert.match(page, /<\/header>\s*<main id="skills-view">[\s\S]*<\/main>\s*<main id="groups-view" hidden>/);
+  assert.match(page, /main\[hidden\] \{ display: none; \}/);
+  assert.equal($('skills-view').hidden, false);
+  assert.equal($('groups-view').hidden, true);
+  assert.equal(url(), `?repo=${encodeURIComponent('https://github.com/Team')}`);
+  // Some state on each side: a repository open and a skill chosen; another group chosen, compared.
+  type('review');
+  const [, web] = $('skills').querySelectorAll('details');
+  web.open = true;
+  const security = $('skills').querySelectorAll('.skill').find((item) => item.dataset.name === 'security-review')!;
+  const pane = choose($, security);
+  click($('to-groups'));
+  assert.equal($('skills-view').hidden, true);
+  assert.equal($('groups-view').hidden, false);
+  assert.equal(url(), `?repo=${encodeURIComponent('https://github.com/Team')}&view=groups`);
+  for (const listener of items()[1].listeners.keydown) listener({ key: 'Enter' });
+  click(byId($('group'), 'tab-two')!);
+  const group = $('group').children;
+  click($('to-skills'));
+  assert.equal($('skills-view').hidden, false);
+  assert.equal(url(), `?repo=${encodeURIComponent('https://github.com/Team')}`);
+  // Back: as it was left.
+  assert.equal($('filter').value, 'review');
+  assert.equal($('repo').value, 'https://github.com/Team');
+  assert.equal(web.open, true);
+  assert.equal($('skill').children, pane);
+  click($('to-groups'));
+  assert.equal($('group').children, group);
+  assert.equal(byId($('group'), 'two')!.hidden, false);
+  assert.equal(scans(), 1);
+});
+
+test('Similar skills →: the groups, in the page, that skill\'s first group chosen and it marked; no new scan', async () => {
+  const { $, scans, url, chosen } = await openGroups('https://github.com/Team', '');
+  const items = $('skills').querySelectorAll('.skill');
+  const security = items.find((item) => item.dataset.name === 'security-review')!;
+  const similar = choose($, security).find((child) => (child as FakeElement).className === 'similar') as FakeElement;
   assert.equal(text(similar), 'Similar skills →');
-  assert.equal(similar.href,
-    `/groups?repo=${encodeURIComponent('https://github.com/JetBrains/example')}&skill=${encodeURIComponent('JetBrains/example:.claude/skills/commits/SKILL.md')}`);
-  // And back: the page of groups links to the page of skills, for the same repository.
-  const groups = await openGroups('https://github.com/Team');
-  assert.match(groups.page, /<nav><a id="to-skills" href="\/">Skills<\/a><a href="\/groups" aria-current="page">Groups<\/a><\/nav>/);
-  assert.equal(groups.$('to-skills').href, `/?repo=${encodeURIComponent('https://github.com/Team')}`);
+  // A link too, to open in a new tab: the page with the groups for that skill.
+  const id = 'Team/web:.agents/skills/security-review/SKILL.md';
+  const address = `?repo=${encodeURIComponent('https://github.com/Team')}&view=groups&skill=${encodeURIComponent(id)}`;
+  assert.equal(similar.href, address);
+  // Ctrl+click: the browser opens the link; nothing changes here.
+  let prevented = false;
+  click(similar, { ctrlKey: true, preventDefault() { prevented = true; } });
+  assert.equal(prevented, false);
+  assert.equal($('groups-view').hidden, true);
+  click(similar);
+  assert.equal($('groups-view').hidden, false);
+  assert.equal(url(), address);
+  assert.equal(chosen().heading, 'review');
+  assert.deepEqual(chosen().columns!.map(({ className }) => className), ['column', 'column wanted']);
+  // Another skill's: its group, it marked instead.
+  click($('to-skills'));
+  const release = items.find((item) => item.dataset.name === 'release')!;
+  click(choose($, release).find((child) => (child as FakeElement).className === 'similar') as FakeElement);
+  assert.equal(chosen().heading, 'release');
+  assert.deepEqual(chosen().columns!.map(({ className }) => className), ['column wanted', 'column']);
+  assert.equal(scans(), 1);
+});
+
+test('the groups: a new scan, from the field, leaves out the skill and stays on the groups', async () => {
+  const id = 'Team/web:.agents/skills/security-review/SKILL.md';
+  const { $, rescan, url, scans, chosen } = await openGroups('https://github.com/Team', `&view=groups&skill=${encodeURIComponent(id)}`);
+  await rescan();
+  assert.equal(scans(), 2);
+  assert.equal($('groups-view').hidden, false);
+  assert.equal(url(), `?repo=${encodeURIComponent('https://github.com/Team')}&view=groups`);
+  assert.equal(chosen().heading, 'release');
+  assert.deepEqual(chosen().columns!.map(({ className }) => className), ['column', 'column']);
+});
+
+test('Tab in the field completes the sample link on the groups too: the one field, above both views', async () => {
+  const { $ } = await openGroups('', '&view=groups');
+  assert.equal($('groups-view').hidden, false);
+  let prevented = false;
+  for (const listener of $('repo').listeners.keydown) listener({ key: 'Tab', preventDefault() { prevented = true; } });
+  assert.equal(prevented, true);
+  assert.equal($('repo').value, 'https://github.com/JetBrains/kotlin');
 });
 
 // Issue #22: the full link, with its commit, took more room in the list than the name and the description.
