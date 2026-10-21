@@ -23,6 +23,7 @@ Listens on *127.0.0.1* only; *nothing is stored*.
   also one with no skills
 - A skill with a warning: in the list, *only* ❗ by its name; choosing it shows the warning, above its SKILL.md
 - While an organization is scanned: `Scanning… 5 of 688 repositories, 57 skills so far`
+- A new scan while one runs, by **Scan** or Enter: it starts at once; the earlier one is *given up*, and nothing of it is shown
 - Warnings and errors shown on the page; the other warnings out of the way, in a *collapsed* group: `❗ N warnings`
 - `/?repo=<link>` opens the page with that repository scanned
 - **Skills** / **Groups**, as buttons by the title: two views of *the same scan*, in the page, not two pages: no new scan;

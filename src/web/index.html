@@ -24,7 +24,7 @@
   input { flex: 1; }
   #filter { flex: 0 1 260px; margin-left: auto; }
   button { padding: 8px 16px; font: inherit; border: 0; border-radius: 6px; background: var(--accent); color: white; cursor: pointer; }
-  button:disabled { opacity: .6; cursor: progress; }
+  form[aria-busy="true"] button { cursor: progress; }
   main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(280px, 420px) 1fr; grid-template-rows: minmax(0, 1fr); }
   main[hidden] { display: none; }
   #groups-view { grid-template-columns: minmax(240px, 340px) 1fr; }
@@ -511,11 +511,18 @@
     if (result) renderGroups(result);
   }
 
+  /** The scan running, to give it up for a new one: only the last scan asked for is shown. */
+  let running = null;
+
   async function scan(repo) {
+    running?.abort();
+    const scanning = running = new AbortController();
+    const current = () => running === scanning;
     lastScanned = repo;
     result = null;
     remember();
-    $('scan').disabled = true;
+    // Scan stays enabled, for a new scan: a form whose default button is disabled ignores Enter.
+    $('form').setAttribute('aria-busy', 'true');
     summarize = null;
     summarizeGroups = null;
     $('summary').textContent = 'Scanning…';
@@ -529,7 +536,7 @@
     applyGroupFilter();
     try {
       // One JSON line as each repository of an organization is done, then the result or the error.
-      const response = await fetch(`/api/scan?repo=${encodeURIComponent(repo)}&progress`);
+      const response = await fetch(`/api/scan?repo=${encodeURIComponent(repo)}&progress`, { signal: scanning.signal });
       if (!response.ok) throw new Error((await response.json()).error);
       const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
       let buffer = '';
@@ -537,6 +544,7 @@
         const lines = (buffer + read.value).split('\n');
         buffer = lines.pop();
         for (const line of lines.filter(Boolean).map((text) => JSON.parse(text))) {
+          if (!current()) return;
           if (line.error) throw new Error(line.error);
           if (line.result) { result = line.result; render(result); renderGroups(result); }
           if (line.progress) {
@@ -547,6 +555,7 @@
         }
       }
     } catch (error) {
+      if (!current()) return; // Given up for a later scan: its end, an abort or not, is not shown.
       summarize = null;
       summarizeGroups = null;
       $('summary').textContent = '';
@@ -556,7 +565,10 @@
       $('skill').replaceChildren();
       $('group').replaceChildren();
     } finally {
-      $('scan').disabled = false;
+      if (current()) {
+        running = null;
+        $('form').setAttribute('aria-busy', 'false');
+      }
     }
   }
 
