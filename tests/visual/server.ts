@@ -41,7 +41,7 @@ Cut a release in **four steps**; stop at the first that fails.
 
 const REVIEW = `---
 name: review
-description: Review a change the way this team does. Short, honest, actionable.
+description: Review a change the way this team does. Short, honest, actionable. Read the whole diff first, then say what it does, what is good about it, and what to fix, most important first.
 ---
 # Review
 
