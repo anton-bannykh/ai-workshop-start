@@ -5,26 +5,36 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Skill Atlas</title>
 <style>
-  :root { color-scheme: light dark; --muted: #6b7280; --line: #d1d5db; --accent: #2563eb; --warn: #b45309; --error: #b91c1c; }
+  :root { color-scheme: light dark; --muted: #6b7280; --line: #d1d5db; --accent: #2563eb; --warn: #b45309; --error: #b91c1c;
+          --own: color-mix(in srgb, #f59e0b 22%, transparent); --added: color-mix(in srgb, #16a34a 18%, transparent);
+          --removed: color-mix(in srgb, #dc2626 16%, transparent); }
   * { box-sizing: border-box; }
   /* The page is as tall as the window: the list and the SKILL.md each scroll on their own. */
   body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; margin: 0; overflow: hidden; font: 15px/1.5 system-ui, sans-serif; }
   header { display: flex; flex: none; flex-wrap: wrap; align-items: flex-end; gap: 12px 24px; padding: 16px 24px; border-bottom: 1px solid var(--line); }
   #scanner { flex: 1 1 480px; }
-  h1 { margin: 0 0 12px; font-size: 20px; }
+  .title { display: flex; align-items: center; gap: 16px; margin: 0 0 12px; }
+  h1 { margin: 0; font-size: 20px; }
+  /* The two views of the same scan, as buttons: the skills, and the same skills grouped. */
+  nav { display: flex; gap: 4px; font-size: 14px; }
+  nav button { padding: 1px 12px; font: inherit; line-height: 1.4; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: inherit; }
+  nav button[aria-current="page"] { background: var(--accent); border-color: var(--accent); color: white; }
   form { display: flex; gap: 8px; max-width: 900px; }
-  input { flex: 1; padding: 8px 10px; font: inherit; border: 1px solid var(--line); border-radius: 6px; }
+  input, select { padding: 8px 10px; font: inherit; border: 1px solid var(--line); border-radius: 6px; }
+  input { flex: 1; }
   #filter { flex: 0 1 260px; margin-left: auto; }
   button { padding: 8px 16px; font: inherit; border: 0; border-radius: 6px; background: var(--accent); color: white; cursor: pointer; }
   button:disabled { opacity: .6; cursor: progress; }
   main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(280px, 420px) 1fr; grid-template-rows: minmax(0, 1fr); }
-  #list { min-height: 0; border-right: 1px solid var(--line); overflow: auto; }
-  #summary, #messages, #no-match { padding: 12px 16px; }
-  #no-match { margin: 0; }
-  #summary { font-weight: 600; }
-  #messages:empty { display: none; }
-  #messages p, #skills .repository .warning { margin: 4px 0; }
-  #messages summary { cursor: pointer; }
+  main[hidden] { display: none; }
+  #groups-view { grid-template-columns: minmax(240px, 340px) 1fr; }
+  #list, #groups-list { min-height: 0; border-right: 1px solid var(--line); overflow: auto; }
+  #summary, #messages, #no-match, #groups-summary, #groups-messages, #groups-no-match { padding: 12px 16px; }
+  #no-match, #groups-no-match { margin: 0; }
+  #summary, #groups-summary { font-weight: 600; }
+  #messages:empty, #groups-messages:empty { display: none; }
+  #messages p, #groups-messages p, #skills .repository .warning { margin: 4px 0; }
+  #messages summary, #groups-messages summary { cursor: pointer; }
   #skills .repository .warning { padding: 0 16px 0 32px; font-size: 13px; }
   .warning { color: var(--warn); }
   .error { color: var(--error); }
@@ -46,6 +56,7 @@
   /* Out of the way: there, but in grey. */
   .modified { color: var(--muted); font-size: 12px; font-weight: normal; }
   .link { display: block; font-size: 12px; word-break: break-all; color: var(--accent); }
+  .similar { display: inline-block; margin-top: 4px; font-size: 13px; color: var(--accent); }
   /* In the list, only the SKILL.md's path, out of the way; the whole link on hover, and when chosen. */
   .path { display: block; width: fit-content; font-size: 12px; word-break: break-all; color: var(--muted); text-decoration: none; }
   .path b { color: var(--accent); }
@@ -75,12 +86,49 @@
   .markdown a { color: var(--accent); }
   .markdown .front-matter th { white-space: nowrap; color: var(--muted); font-weight: 500; }
   .markdown div.front-matter pre { white-space: pre-wrap; }
+  /* Groups: skills whose names share a word, side by side. */
+  #groups { list-style: none; margin: 0; padding: 0; }
+  #groups .group { padding: 10px 16px; border-top: 1px solid var(--line); cursor: pointer; }
+  #groups .group:hover, #groups .group:focus { background: color-mix(in srgb, var(--accent) 8%, transparent); outline: none; }
+  #groups .group[aria-selected="true"] { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+  #groups .words { display: flex; gap: 8px; font-weight: 600; }
+  #groups .words .count { margin-left: auto; }
+  .members, .column .description, .column .repository, .legend, #groups .count, #group .count, .stats { color: var(--muted); font-size: 13px; font-weight: normal; }
+  mark { background: color-mix(in srgb, var(--accent) 18%, transparent); color: inherit; border-radius: 3px; padding: 0 1px; }
+  #group { min-height: 0; padding: 16px 24px; overflow: auto; }
+  #group h2 { margin: 0 0 4px; font-size: 18px; }
+  .legend span { display: inline-block; margin-right: 12px; padding: 0 6px; border-radius: 3px; }
+  /* Side by side: a column for each skill, its SKILL.md line by line. */
+  /* Many of them scroll sideways on their own: the group's heading and tabs stay in view. */
+  #columns { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(300px, 1fr); gap: 16px; align-items: start; overflow-x: auto; padding-bottom: 8px; }
+  .column { min-width: 0; border: 1px solid var(--line); border-radius: 6px; }
+  .column header { display: block; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+  .column .name { font-weight: 600; }
+  .lines { margin: 0; padding: 8px 0; font: 12px/1.5 ui-monospace, monospace; }
+  .lines div { padding: 0 12px; white-space: pre-wrap; word-break: break-word; min-height: 1.5em; }
+  /* The same in all of them: there, but in grey; only in this one: marked. */
+  .lines .all, .legend .all { color: var(--muted); }
+  .lines .own, .legend .own { background: var(--own); }
+  .lines .removed, .legend .removed { background: var(--removed); }
+  .lines .added, .legend .added { background: var(--added); }
+  .lines .removed::before { content: '− '; }
+  .lines .added::before { content: '+ '; }
+  .lines .same::before { content: '  '; }
+  .lines .same { color: var(--muted); }
+  #pair { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 12px; }
+  #diff { border: 1px solid var(--line); border-radius: 6px; }
+  /* The skill whose similar skills these are, from its Similar skills link. */
+  .column.wanted { border: 2px solid var(--accent); }
+  .members .wanted { font-weight: 600; color: CanvasText; }
 </style>
 </head>
 <body>
 <header>
   <div id="scanner">
-    <h1>Skill Atlas</h1>
+    <div class="title">
+      <h1>Skill Atlas</h1>
+      <nav><button id="to-skills" type="button" aria-current="page">Skills</button><button id="to-groups" type="button">Groups</button></nav>
+    </div>
     <form id="form">
       <input id="repo" name="repo" type="text" required autofocus
              placeholder="https://github.com/JetBrains/kotlin" aria-label="Repository or organization link">
@@ -89,7 +137,7 @@
   </div>
   <input id="filter" type="search" placeholder="Filter by name" aria-label="Filter skills by name" autocomplete="off">
 </header>
-<main>
+<main id="skills-view">
   <section id="list">
     <div id="summary"></div>
     <button id="toggle" type="button"></button>
@@ -98,6 +146,15 @@
     <p id="no-match" class="empty" hidden>No skill's name matches the filter.</p>
   </section>
   <section id="skill"><p class="empty">Enter a repository or organization link, then choose a skill to see its SKILL.md.</p></section>
+</main>
+<main id="groups-view" hidden>
+  <section id="groups-list">
+    <div id="groups-summary"></div>
+    <div id="groups-messages"></div>
+    <ul id="groups"></ul>
+    <p id="groups-no-match" class="empty" hidden>No group has a skill whose name matches the filter.</p>
+  </section>
+  <section id="group"><p class="empty">Enter a repository or organization link: its skills, grouped by the words their names share.</p></section>
 </main>
 <script type="module">
   const $ = (id) => document.getElementById(id);
@@ -150,7 +207,14 @@
     };
     select();
     const date = modified(skill, 'Last modified ');
-    $('skill').replaceChildren(element('h2', {}, skill.name), link(skill), date && element('div', {}, date), ...skill.warnings.map(warning), tabs, formatted, raw);
+    // The skills whose names share a word with this one's: the groups, in the page, this one marked there.
+    const similar = element('a', { className: 'similar', href: address('groups', skill.id) }, 'Similar skills →');
+    similar.addEventListener('click', (event) => {
+      if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return; // A new tab or window: the link.
+      event.preventDefault();
+      similarTo(skill.id);
+    });
+    $('skill').replaceChildren(element('h2', {}, skill.name), link(skill), date && element('div', {}, date), similar, ...skill.warnings.map(warning), tabs, formatted, raw);
   }
 
   const count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
@@ -184,7 +248,8 @@
     if (summarize) $('summary').textContent = summarize(shown, repositories);
     $('no-match').hidden = shown > 0 || $('skills').children.length === 0;
   }
-  $('filter').addEventListener('input', applyFilter);
+  // One filter for both views: the skills by name, and the groups by their skills' names.
+  $('filter').addEventListener('input', () => { applyFilter(); applyGroupFilter(); });
 
   /** A skill with a warning only has ❗ by its name; choosing it shows the warning. */
   function skillItem(skill) {
@@ -248,14 +313,220 @@
       withSkills ? 'Open a repository, then choose a skill to see its SKILL.md.' : 'No skills here.'));
   }
 
+  // Groups: the same skills, grouped by the words their names share, to see what is the same in them and what is not.
+
+  /** The name, with the words its group shares marked; split the way the groups split names. */
+  const marked = (name, words) => element('span', {}, ...name.replace(/(\p{Ll}|\p{N})(\p{Lu})/gu, '$1\u0000$2')
+    .split(/(\u0000|[^\p{L}\p{N}]+)/u)
+    .filter((part) => part !== '\u0000' && part !== '')
+    .map((part) => (words.includes(part.toLowerCase()) ? element('mark', {}, part) : part)));
+
+  /**
+   * The lines of two SKILL.md files, compared: `same` in both, `removed` only in the first, `added`
+   * only in the second; the longest common run of lines, trimmed, kept in order.
+   */
+  const diff = (a, b) => {
+    const x = a.map((line) => line.text.trim());
+    const y = b.map((line) => line.text.trim());
+    const common = Array.from({ length: x.length + 1 }, () => new Array(y.length + 1).fill(0));
+    for (let i = x.length - 1; i >= 0; i--) {
+      for (let j = y.length - 1; j >= 0; j--) common[i][j] = x[i] === y[j] ? common[i + 1][j + 1] + 1 : Math.max(common[i + 1][j], common[i][j + 1]);
+    }
+    const rows = [];
+    let i = 0, j = 0;
+    while (i < x.length || j < y.length) {
+      if (i < x.length && j < y.length && x[i] === y[j]) { rows.push({ kind: 'same', text: b[j].text }); i++; j++; }
+      else if (i < x.length && (j === y.length || common[i + 1][j] >= common[i][j + 1])) rows.push({ kind: 'removed', text: a[i++].text });
+      else rows.push({ kind: 'added', text: b[j++].text });
+    }
+    return rows;
+  };
+
+  /** Whether a line says something: not a blank line, nor the front matter's `---`. */
+  const says = (text) => /[\p{L}\p{N}]/u.test(text);
+
+  const lines = (rows) => element('div', { className: 'lines' }, ...rows.map(({ kind, text }) => element('div', { className: kind }, text)));
+
+  /** Side by side by default; two of them compared on their own tab. */
+  let groupView = 'columns';
+
+  /** The group: each skill in its own column, what all of them share in grey, what is only its own marked; or two compared. */
+  function showGroup(group, item) {
+    for (const other of $('groups').querySelectorAll('.group')) other.setAttribute('aria-selected', String(other === item));
+    const shared = group.skills[0].lines.filter((line) => line.kind === 'all' && says(line.text)).length;
+    const columns = element('div', { id: 'columns' }, ...group.skills.map((skill) => element('div', { className: skill.id === wanted ? 'column wanted' : 'column' },
+      element('header', {},
+        element('div', { className: 'name' }, marked(skill.name, group.words)),
+        element('div', { className: 'repository' }, skill.repository),
+        skill.description ? element('div', { className: 'description' }, skill.description) : '',
+        link(skill)),
+      lines(skill.lines))));
+    const legend = element('p', { className: 'legend' },
+      element('span', { className: 'all' }, 'in all of them'), element('span', { className: 'some' }, 'in some'), element('span', { className: 'own' }, 'only in this one'));
+    const sideBySide = element('div', { id: 'side-by-side' }, legend, columns);
+
+    // Two of them: the first two at first; any two chosen.
+    const choice = (id, selected) => {
+      const select = element('select', { id, ariaLabel: id === 'left' ? 'First skill' : 'Second skill' },
+        ...group.skills.map((skill, index) => element('option', { value: String(index), selected: index === selected },
+          group.skills.filter((other) => other.name === skill.name).length > 1 ? `${skill.name} (${skill.repository})` : skill.name)));
+      select.value = String(selected);
+      select.addEventListener('change', compare);
+      return select;
+    };
+    // The skill whose similar skills these are first, if it is in the group.
+    const first = Math.max(0, group.skills.findIndex((skill) => skill.id === wanted));
+    const left = choice('left', first);
+    const right = choice('right', first === 0 ? 1 : 0);
+    const stats = element('span', { className: 'stats' });
+    const output = element('div', { id: 'diff' });
+    function compare() {
+      const rows = diff(group.skills[Number(left.value)].lines, group.skills[Number(right.value)].lines);
+      const n = (kind) => rows.filter((row) => row.kind === kind && says(row.text)).length;
+      stats.textContent = `${count(n('same'), 'line', 'lines')} the same · ${n('removed')} only in the first · ${n('added')} only in the second`;
+      output.replaceChildren(lines(rows));
+    }
+    compare();
+    const two = element('div', { id: 'two' }, element('p', { id: 'pair' }, left, 'and', right, stats),
+      element('p', { className: 'legend' }, element('span', { className: 'removed' }, 'only in the first'), element('span', { className: 'added' }, 'only in the second')),
+      output);
+
+    const tab = (name, label) => {
+      const button = element('button', { type: 'button', id: `tab-${name}` }, label);
+      button.addEventListener('click', () => { groupView = name; select(); });
+      return button;
+    };
+    const tabs = element('div', { className: 'tabs', role: 'tablist' }, tab('columns', 'Side by side'), tab('two', 'Compare two'));
+    const select = () => {
+      sideBySide.hidden = groupView !== 'columns';
+      two.hidden = groupView !== 'two';
+      for (const button of tabs.children) button.setAttribute('aria-selected', String(button.id === `tab-${groupView}`));
+    };
+    select();
+    $('group').replaceChildren(
+      element('h2', {}, group.words.join(' · ')),
+      element('div', { className: 'count' }, `${count(group.skills.length, 'skill', 'skills')} · ${count(shared, 'line', 'lines')} in all of them`),
+      tabs, sideBySide, two);
+    columns.querySelectorAll('.wanted')[0]?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }
+
+  /** Whether the filter keeps a group: one of its skills' names contains the filter, ignoring case and the spaces around it. */
+  const keeps = (group) => group.skills.some((skill) => matches(skill.name, $('filter').value));
+  /** The summary for the groups the filter keeps; null while there is no result. */
+  let summarizeGroups = null;
+  let shownGroups = [];
+
+  /** Filters the groups by their skills' names, in the page: no new scan. */
+  function applyGroupFilter() {
+    let shown = 0;
+    for (const item of $('groups').querySelectorAll('.group')) {
+      item.hidden = !keeps(shownGroups[Number(item.dataset.index)]);
+      if (!item.hidden) shown++;
+    }
+    if (summarizeGroups) $('groups-summary').textContent = summarizeGroups(shown);
+    $('groups-no-match').hidden = shown > 0 || $('groups').children.length === 0;
+  }
+
+  function groupItem(group, index) {
+    const item = element('li', { className: 'group', tabIndex: 0 },
+      element('div', { className: 'words' }, element('span', {}, group.words.join(' · ')), element('span', { className: 'count' }, count(group.skills.length, 'skill', 'skills'))),
+      element('div', { className: 'members' }, ...group.skills.flatMap((skill, at) => {
+        const name = marked(skill.name, group.words);
+        if (skill.id === wanted) name.className = 'wanted';
+        return [at ? ', ' : '', name];
+      })));
+    item.dataset.index = String(index);
+    item.addEventListener('click', () => showGroup(group, item));
+    item.addEventListener('keydown', (event) => { if (event.key === 'Enter') showGroup(group, item); });
+    return item;
+  }
+
+  /** A SKILL.md line by line, as the groups' line kinds count them: the last line end left out. */
+  const linesOf = (text) => text.replace(/\r\n?/g, '\n').replace(/\n$/, '').split('\n');
+
+  /**
+   * The groups of the scan: every repository's skills together. The warnings, all of them, each naming its
+   * SKILL.md, and its repository in an organization.
+   */
+  function renderGroups(body) {
+    const repositories = body.organization ? body.repositories : [body];
+    const skills = repositories.flatMap((repository) => repository.skills);
+    const byId = new Map(skills.map((skill) => [skill.id, skill]));
+    const own = ({ skills, warnings }) => [...warnings, ...skills.flatMap(({ path, warnings }) => warnings.map((text) => `${path}: ${text}`))];
+    const warnings = body.organization
+      ? [...body.warnings, ...repositories.flatMap((repository) => own(repository).map((text) => `${repository.repository.id}: ${text}`))]
+      : own(body);
+    $('groups-messages').replaceChildren(...(warnings.length ? [warningsGroup(warnings)] : []));
+    const groups = body.groups.map(({ words, skills }) => ({
+      words,
+      skills: skills.map(({ id, kinds }) => {
+        const skill = byId.get(id);
+        return { ...skill, lines: linesOf(skill.text).map((text, at) => ({ text, kind: kinds[at] })) };
+      }),
+    }));
+    const id = (body.organization ?? body.repository).id;
+    const of = (shown) => (filtering() ? `${shown} of ${count(groups.length, 'group', 'groups')}` : count(groups.length, 'group', 'groups'));
+    summarizeGroups = (shown) => `${id} · ${of(shown)} · ${count(skills.length, 'skill', 'skills')}${body.organization ? ` · ${body.scanned} scanned` : ''}`;
+    shownGroups = groups;
+    $('groups').replaceChildren(...groups.map(groupItem));
+    applyGroupFilter();
+    $('group').replaceChildren(element('p', { className: 'empty' },
+      groups.length ? 'Choose a group to see its skills side by side.' : 'No two skills here share a word of their names.'));
+    // For a skill: the first of its groups; one in none says so.
+    const first = wanted
+      ? groups.findIndex((group) => group.skills.some((skill) => skill.id === wanted))
+      : groups.findIndex(keeps);
+    if (first !== -1) showGroup(groups[first], $('groups').children[first]);
+    else if (wanted) $('group').replaceChildren(element('p', { className: 'empty' }, `No other skill here shares a word of its name with ${byId.get(wanted)?.path ?? wanted}.`));
+  }
+
+  /** The skill whose similar skills the groups show, from its link or /?repo=<URL>&view=groups&skill=<id>; marked there. */
+  let wanted = new URLSearchParams(location.search).get('skill') ?? '';
+
+  /** What was scanned last, the view shown, and the result, both views' from the one scan. */
+  let lastScanned = '';
+  let currentView = 'skills';
+  let result = null;
+
+  /** The page's address for what it shows: /?repo=<link>, and &view=groups&skill=<id> in the groups. */
+  const address = (view, skill) => `?repo=${encodeURIComponent(lastScanned)}${view === 'groups' ? `&view=groups${skill ? `&skill=${encodeURIComponent(skill)}` : ''}` : ''}`;
+  const remember = () => { if (lastScanned) history.replaceState(null, '', address(currentView, wanted)); };
+
+  /** Skills or Groups: the other view hidden, as it was, for when it is back; no new scan. */
+  function showView(view) {
+    currentView = view;
+    $('skills-view').hidden = view !== 'skills';
+    $('groups-view').hidden = view !== 'groups';
+    $('to-skills').setAttribute('aria-current', String(view === 'skills' && 'page'));
+    $('to-groups').setAttribute('aria-current', String(view === 'groups' && 'page'));
+    remember();
+  }
+  $('to-skills').addEventListener('click', () => showView('skills'));
+  $('to-groups').addEventListener('click', () => showView('groups'));
+
+  /** A skill's similar skills: the groups, the first of its groups chosen, it marked there. */
+  function similarTo(id) {
+    wanted = id;
+    showView('groups');
+    if (result) renderGroups(result);
+  }
+
   async function scan(repo) {
+    lastScanned = repo;
+    result = null;
+    remember();
     $('scan').disabled = true;
     summarize = null;
+    summarizeGroups = null;
     $('summary').textContent = 'Scanning…';
+    $('groups-summary').textContent = 'Scanning…';
     $('toggle').replaceChildren();
     $('messages').replaceChildren();
+    $('groups-messages').replaceChildren();
     $('skills').replaceChildren();
+    $('groups').replaceChildren();
     applyFilter();
+    applyGroupFilter();
     try {
       // One JSON line as each repository of an organization is done, then the result or the error.
       const response = await fetch(`/api/scan?repo=${encodeURIComponent(repo)}&progress`);
@@ -267,18 +538,23 @@
         buffer = lines.pop();
         for (const line of lines.filter(Boolean).map((text) => JSON.parse(text))) {
           if (line.error) throw new Error(line.error);
-          if (line.result) render(line.result);
+          if (line.result) { result = line.result; render(result); renderGroups(result); }
           if (line.progress) {
             const { done, total, skills } = line.progress;
-            $('summary').textContent = `Scanning… ${done} of ${count(total, 'repository', 'repositories')}, ${count(skills, 'skill', 'skills')} so far`;
+            $('summary').textContent = $('groups-summary').textContent =
+              `Scanning… ${done} of ${count(total, 'repository', 'repositories')}, ${count(skills, 'skill', 'skills')} so far`;
           }
         }
       }
     } catch (error) {
       summarize = null;
+      summarizeGroups = null;
       $('summary').textContent = '';
+      $('groups-summary').textContent = '';
       $('messages').replaceChildren(element('p', { className: 'error' }, error.message));
+      $('groups-messages').replaceChildren(element('p', { className: 'error' }, error.message));
       $('skill').replaceChildren();
+      $('group').replaceChildren();
     } finally {
       $('scan').disabled = false;
     }
@@ -297,12 +573,13 @@
 
   $('form').addEventListener('submit', (event) => {
     event.preventDefault();
-    const repo = $('repo').value.trim();
-    history.replaceState(null, '', `?repo=${encodeURIComponent(repo)}`);
-    scan(repo);
+    wanted = '';
+    scan($('repo').value.trim());
   });
-  // A link to the page can name the repository: /?repo=<URL>.
-  const initial = new URLSearchParams(location.search).get('repo');
+  // A link to the page can name the repository, the view, and a skill: /?repo=<URL>&view=groups&skill=<id>.
+  const query = new URLSearchParams(location.search);
+  if (query.get('view') === 'groups') showView('groups');
+  const initial = query.get('repo');
   if (initial) { $('repo').value = initial; scan(initial); }
 </script>
 </body>

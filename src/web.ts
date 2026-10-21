@@ -1,8 +1,10 @@
-// The web view: one page with a field for a repository link, and the scan as JSON behind it. Local
-// only, on 127.0.0.1; nothing is stored. The same core as the CLI: fetch → find → parse.
+// The web view: one page with a field for a repository link, and the scan as JSON behind it: the skills,
+// and the same skills grouped, similar ones side by side. Local only, on 127.0.0.1; nothing is stored. The
+// same core as the CLI: fetch → find → parse.
 import { readFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { AtlasError } from './core/errors.ts';
+import { groupSkills } from './core/groups.ts';
 import { skillLink, skillLinkParts, type Repository, type Skill } from './core/model.ts';
 import { scan, scanOrganization, type OrganizationSource, type Progress, type Source } from './core/scan.ts';
 import { renderSkill } from './markdown.ts';
@@ -53,7 +55,10 @@ export function createWebServer(open: (input: string) => Promise<Source | Organi
   });
 }
 
-/** What `/api/scan` answers: the repository, or the organization's repositories, with the warnings. */
+/**
+ * What `/api/scan` answers: the repository, or the organization's repositories, with the warnings; and
+ * the groups of skills whose names share words, every repository's skills together.
+ */
 async function scanned(open: (input: string) => Promise<Source | OrganizationSource>, input: string, progress?: (progress: Progress) => void) {
   const source = await open(input);
   if ('organization' in source) {
@@ -63,10 +68,19 @@ async function scanned(open: (input: string) => Promise<Source | OrganizationSou
       repositories: repositories.map(({ repository, skills, warnings }) => ({ ...withPages(repository, skills), warnings })),
       scanned,
       warnings,
+      groups: grouped(repositories.flatMap(({ skills }) => skills)),
     };
   }
   const { repository, skills, warnings } = await scan(source);
-  return { ...withPages(repository, skills), warnings };
+  return { ...withPages(repository, skills), warnings, groups: grouped(skills) };
+}
+
+/** The groups of skills whose names share words; each skill by its id, with the kind of each line of its SKILL.md there. */
+function grouped(skills: Skill[]) {
+  return groupSkills(skills).map(({ words, skills }) => ({
+    words,
+    skills: skills.map(({ skill, lines }) => ({ id: skill.id, kinds: lines.map(({ kind }) => kind) })),
+  }));
 }
 
 /** The repository and its skills, each with its link and its SKILL.md as HTML. */

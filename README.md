@@ -18,7 +18,8 @@ under its own heading, showing how far it is as it goes (set `GITHUB_TOKEN`: it 
 private ones too).
 
 `./skill-atlas serve` opens the same scan as a local web view at http://127.0.0.1:4173/: a field for
-a repository link, its skills, and each skill's SKILL.md.
+a repository link, its skills, and each skill's SKILL.md. Its **Groups** page puts similar skills side by
+side, those whose names share a word, to see what is the same in them and what is not.
 
 Set `GITHUB_TOKEN` for a higher GitHub rate limit. `npm test` runs the tests; `npm run test:e2e`,
 with `GITHUB_TOKEN` set, runs the CLI against real JetBrains repositories on GitHub; `npm run test:visual`,
