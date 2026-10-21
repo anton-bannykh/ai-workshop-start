@@ -2,7 +2,7 @@
 // and the same skills grouped, similar ones side by side. Local only, on 127.0.0.1; nothing is stored. The
 // same core as the CLI: fetch → find → parse.
 import { readFileSync } from 'node:fs';
-import { createServer, type Server } from 'node:http';
+import { createServer, type IncomingHttpHeaders, type Server } from 'node:http';
 import { AtlasError } from './core/errors.ts';
 import { groupSkills } from './core/groups.ts';
 import { skillLink, skillLinkParts, type Repository, type Skill } from './core/model.ts';
@@ -11,12 +11,14 @@ import { renderSkill } from './markdown.ts';
 
 const PAGE = readFileSync(new URL('./web/index.html', import.meta.url));
 const HOST = '127.0.0.1';
+// With every answer: no other page may frame this one, to lay it under its own buttons.
+const HEADERS = { 'Cache-Control': 'no-store', 'Content-Security-Policy': "frame-ancestors 'none'", 'X-Frame-Options': 'DENY' };
 
 /** The web view's server, not yet listening; `open` is what the CLI's `scan` opens. */
 export function createWebServer(open: (input: string) => Promise<Source | OrganizationSource>): Server {
   return createServer(async (request, response) => {
     const send = (status: number, type: string, body: string | Buffer) => {
-      response.writeHead(status, { 'Content-Type': type, 'Cache-Control': 'no-store' });
+      response.writeHead(status, { ...HEADERS, 'Content-Type': type });
       response.end(body);
     };
     const json = (status: number, value: unknown) => send(status, 'application/json; charset=utf-8', JSON.stringify(value));
@@ -28,6 +30,9 @@ export function createWebServer(open: (input: string) => Promise<Source | Organi
     if (request.method !== 'GET') return json(405, { error: `Not allowed: ${request.method}` });
     if (url.pathname === '/') return send(200, 'text/html; charset=utf-8', PAGE);
     if (url.pathname !== '/api/scan') return json(404, { error: `Not found: ${url.pathname}` });
+    // Another page in the user's browser sends this Host too, and would spend the user's token: what it says
+    // of where it comes from tells it apart. A link to /?repo= opens the page, which then asks itself.
+    if (!fromThePage(request.headers, host)) return json(403, { error: 'Only the page itself can ask for a scan' });
 
     const input = url.searchParams.get('repo')?.trim();
     if (!input) return json(400, { error: 'Enter a GitHub repository or organization URL, or a directory' });
@@ -37,7 +42,7 @@ export function createWebServer(open: (input: string) => Promise<Source | Organi
 
     // With &progress, one JSON line as each repository is done, then the result or the error.
     if (url.searchParams.has('progress')) {
-      response.writeHead(200, { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-store' });
+      response.writeHead(200, { ...HEADERS, 'Content-Type': 'application/x-ndjson; charset=utf-8' });
       const line = (value: unknown) => response.write(`${JSON.stringify(value)}\n`);
       try {
         line({ result: await scanned(open, input, (progress) => line({ progress })) });
@@ -53,6 +58,16 @@ export function createWebServer(open: (input: string) => Promise<Source | Organi
       json(status, { error: message });
     }
   });
+}
+
+/**
+ * Whether a scan is asked by the page itself, or by no page at all: the browser's `Sec-Fetch-Site`, if sent, is
+ * `same-origin` (or `none`, typed in the address bar), and the `Origin`, if sent, is this server's.
+ */
+function fromThePage(headers: IncomingHttpHeaders, host: string): boolean {
+  const site = headers['sec-fetch-site'];
+  if (site !== undefined && site !== 'same-origin' && site !== 'none') return false;
+  return headers.origin === undefined || headers.origin === `http://${host}`;
 }
 
 /**

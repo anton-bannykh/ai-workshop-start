@@ -136,10 +136,11 @@ async function record(scenario: (demo: Demo) => Promise<void>, out: string, name
     const capturing = (async () => {
       while (recording) {
         const at = performance.now();
-        // The caret too: the default hides it, and typing shows it.
-        const frame = await page.screenshot({ type: 'png', caret: 'initial' });
+        // The caret too: the default hides it, and typing shows it. While the page goes to another address, a
+        // screenshot can fail, or never return: that frame is left out, the one before lasts longer.
+        const frame = await page.screenshot({ type: 'png', caret: 'initial', timeout: 2000 }).catch(() => undefined);
         // The same picture again: the last frame lasts longer.
-        if (!frames.at(-1)?.data.equals(frame)) frames.push({ data: frame, at });
+        if (frame && !frames.at(-1)?.data.equals(frame)) frames.push({ data: frame, at });
         const wait = FRAME - (performance.now() - at);
         if (wait > 0) await new Promise((done) => setTimeout(done, wait));
       }
