@@ -175,6 +175,6 @@ if (import.meta.main) {
   const found = changes(base, values.out);
   const files = found.flatMap((change) => [change.before, change.after].filter((file): file is string => !!file));
   const urls = new Map<string, string>();
-  if (values.pr && files.length > 0) publish(values.pr, files).forEach((url, index) => urls.set(files[index], url));
+  if (values.pr && files.length > 0) publish(`pr-${values.pr}`, files).forEach((url, index) => urls.set(files[index], url));
   console.log(section(found, (file) => urls.get(file) ?? file));
 }
