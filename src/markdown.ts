@@ -1,7 +1,7 @@
 // A SKILL.md as HTML, for the web view. The file comes from any repository, so nothing in it runs:
 // raw HTML is shown as text, and links and images keep only safe schemes.
 import { Marked, type Tokens } from 'marked';
-import { parseSkill } from './core/parse.ts';
+import { parseSkill, Written } from './core/parse.ts';
 
 const LINKS = new Set(['http:', 'https:', 'mailto:', 'file:']);
 const IMAGES = new Set(['http:', 'https:', 'file:']);
@@ -61,7 +61,17 @@ function frontMatter(text: string, parsed: ReturnType<typeof parseSkill>): strin
 function property(value: unknown): string {
   if (typeof value === 'string') return escape(value);
   if (Array.isArray(value) && value.every((item) => typeof item === 'string')) return escape(value.join(', '));
-  return `<code>${escape(JSON.stringify(value) ?? String(value))}</code>`;
+  return `<code>${escape(compact(value))}</code>`;
+}
+
+/** As JSON, but a number or a boolean as the file writes it. */
+function compact(value: unknown): string {
+  if (value instanceof Written) return value.source;
+  if (Array.isArray(value)) return `[${value.map(compact).join(',')}]`;
+  if (typeof value === 'object' && value !== null) {
+    return `{${Object.entries(value).map(([key, item]) => `${JSON.stringify(key)}:${compact(item)}`).join(',')}}`;
+  }
+  return JSON.stringify(value) ?? String(value);
 }
 
 /** The link against the file, if its scheme is allowed; `#anchors` stay on the page. */

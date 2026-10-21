@@ -417,6 +417,24 @@ test('formatting: the front matter as a table, the Markdown rendered', () => {
   );
 });
 
+test('formatting: the front matter\'s numbers as the file writes them, not as YAML reads them', () => {
+  // A version is read where it is written: 1.10 is not 1.1 (#49).
+  const html = renderSkill(
+    '---\nname: release\nversion: 1.10\nsince-build: 2024.30\nuntil-build: 0242\nbuild: 12345678901234567890\n'
+      + 'beta: True\nquoted: "1.10"\n2.0: two\nmetadata: { level: 2.0, builds: [1.10, 0242], name: x }\n---\n',
+    FILE,
+  );
+  assert.equal(
+    html,
+    '<table class="front-matter"><tbody><tr><th>name</th><td>release</td></tr>'
+      + '<tr><th>version</th><td><code>1.10</code></td></tr><tr><th>since-build</th><td><code>2024.30</code></td></tr>'
+      + '<tr><th>until-build</th><td><code>0242</code></td></tr><tr><th>build</th><td><code>12345678901234567890</code></td></tr>'
+      + '<tr><th>beta</th><td><code>True</code></td></tr><tr><th>quoted</th><td>1.10</td></tr><tr><th>2.0</th><td>two</td></tr>'
+      + '<tr><th>metadata</th><td><code>{&#34;level&#34;:2.0,&#34;builds&#34;:[1.10,0242],&#34;name&#34;:&#34;x&#34;}</code></td></tr>'
+      + '</tbody></table>',
+  );
+});
+
 test('formatting: nothing in the file runs; raw HTML is text (a block as code), unsafe links and images are dropped', () => {
   const html = renderSkill(
     '<script>alert(1)</script>\n\nInline <img src=x onerror=alert(1)> here.\n\n'

@@ -70,5 +70,7 @@ then `{ result }`, the same JSON; or `{ status, error }`. The page asks this way
 - Links: `http`, `https`, `mailto`, `file`, `#anchors`; images: `http`, `https`, `file`; others → dropped
 - Relative links → against the SKILL.md at the scanned commit; GitHub images → the raw file
 - Malformed front matter → shown as it is; its warning, the skill's, above it
+- The front matter's values as the file writes them: `version: 1.10` → `1.10`, `0242` → `0242`, not the number YAML
+  reads; a key too
 - A clear message → `400 { error }`; unknown paths → `404`; not `GET` → `405`
 - Another `Host` than the local address → `403`
