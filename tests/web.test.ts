@@ -786,3 +786,29 @@ test('a button to the page of groups, for the repository scanned; each skill a l
   assert.match(groups.page, /<nav><a id="to-skills" href="\/">Skills<\/a><a href="\/groups" aria-current="page">Groups<\/a><\/nav>/);
   assert.equal(groups.$('to-skills').href, `/?repo=${encodeURIComponent('https://github.com/Team')}`);
 });
+
+// Issue #22: the full link, with its commit, took more room in the list than the name and the description.
+test('the list: each skill\'s path, not its whole link; the description at most two lines; the whole of both on hover', async () => {
+  const { page, $ } = await openPage('https://github.com/JetBrains/example');
+  const [item] = $('skills').querySelectorAll('.skill');
+  const full = `https://github.com/JetBrains/example/blob/${EXAMPLE_COMMIT}/.claude/skills/commits/SKILL.md`;
+  // The path, a link to the SKILL.md: its directory in grey, SKILL.md in bold; the whole link on hover.
+  assert.deepEqual(item.querySelectorAll('.link'), []);
+  const [path] = item.querySelectorAll('.path') as (FakeElement & { href: string })[];
+  assert.equal(path.tagName, 'A');
+  assert.equal(path.href, full);
+  assert.equal(path.title, full);
+  assert.equal(text(path), '.claude/skills/commits/SKILL.md');
+  assert.deepEqual(path.children.map((child) => (child as FakeElement).tagName), ['SPAN', 'B']);
+  assert.equal(text(path.children[1]), 'SKILL.md');
+  assert.match(page, /\.path \{[^}]*color: var\(--muted\);/);
+  // The description: cut after two lines; the whole of it on hover.
+  const [description] = item.querySelectorAll('.description');
+  assert.equal(description.title, 'Write commit messages the way this repository does. Use for every commit.');
+  assert.match(page, /#skills \.description \{[^}]*-webkit-line-clamp: 2;[^}]*overflow: hidden;/);
+  // Chosen: the whole link, its path in bold, as before.
+  const pane = choose($, item);
+  const link = pane.find((child) => (child as FakeElement).className === 'link') as FakeElement & { href: string };
+  assert.equal(link.href, full);
+  assert.equal(text(link), full);
+});
