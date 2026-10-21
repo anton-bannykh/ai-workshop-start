@@ -103,21 +103,30 @@ For each bug, most severe first:
    - **Severity:** its rank from [step 3](#3-pick-the-most-severe), and why.
    - **Environment:** the commit (`git rev-parse --short HEAD`), the OS, the browser Playwright ran.
    - What you think the cause is, with `file:line`, only if you looked and are fairly sure; say how sure.
-   Don't add the `ai-go` label: whether an agent picks it up is a person's call.
 2. Publish the video for it: `npm run -s demo:publish -- --issue <number> .demo/<slug>.webp`. It prints the
    Markdown that shows it.
 3. Add a `## Video` section at the end of the body, with that Markdown and one line on what it shows:
    `gh issue edit <number> --repo anton-bannykh/ai-workshop-start --body-file …`.
 4. Open the issue in GitHub (`gh issue view <number> --repo anton-bannykh/ai-workshop-start`) and check it reads
    right and the video is there.
+5. If you think an agent could fix it alone, add the `ai-go` label, which [issue-to-pr](../issue-to-pr/SKILL.md)
+   picks up: `gh issue edit <number> --repo anton-bannykh/ai-workshop-start --add-label ai-go`. It can when all of
+   these hold:
+   - the expected behavior is clear, from the spec or beyond doubt, with no product decision to make;
+   - the cause is in this repository's code, found and fairly sure, and the fix is small and local;
+   - a test here can show the bug and then the fix: no live service, no special machine or permissions.
+
+   Otherwise, leave it for a person, and end the body with one line on why: what needs deciding, or what is
+   unknown.
 
 ## 6. Clean up and notify
 
 - Stop the server. Leave `.demo/` as it is (ignored); remove `/tmp/red-agent/`.
 - Tell the Slack channel `C0CAS41KRD3`, with `slack_post` as [issue-to-pr](../issue-to-pr/SKILL.md#slack) says:
-  one message, each issue's link and title with its severity in a few words.
+  one message, each issue's link and title with its severity in a few words, and `ai-go` on those that have it.
 
 ## Report
 
-To the user: the issues filed, with links, most severe first, each in a sentence; the suspects you dropped and why
-(couldn't reproduce, already filed, by design, too minor); and what you didn't get to explore.
+To the user: the issues filed, with links, most severe first, each in a sentence, with whether it got `ai-go` and
+why; the suspects you dropped and why (couldn't reproduce, already filed, by design, too minor); and what you didn't
+get to explore.
