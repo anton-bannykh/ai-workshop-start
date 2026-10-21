@@ -86,6 +86,7 @@ class FakeElement {
   title = '';
   href = '';
   listeners: Record<string, ((event: object) => void)[]> = {};
+  onclick: (() => void) | null = null;
   append(...nodes: (FakeElement | string)[]) { this.children.push(...nodes.filter((node) => node !== '')); }
   replaceChildren(...nodes: (FakeElement | string)[]) { this.children = []; this.append(...nodes); }
   addEventListener(type: string, listener: (event: object) => void) { (this.listeners[type] ??= []).push(listener); }
@@ -224,6 +225,44 @@ test('the filter on an organization: only the skills it keeps, only the reposito
   assert.deepEqual(shown(), [['commits'], [], ['deploy'], ['build', 'lint']]);
   assert.deepEqual(counts(), ['1 skill', '0 skills', '1 skill', '2 skills']);
   assert.equal($('summary').textContent, 'JetBrains · 4 skills in 3 repositories · 6 scanned');
+});
+
+test('Expand all / Collapse all on an organization: only the repositories the filter shows; its label follows the filter', async () => {
+  const { $, type } = await openPage('https://github.com/JetBrains');
+  const groups = $('skills').children as FakeElement[];
+  const details = groups.map((group) => group.querySelectorAll('details')[0]);
+  /** Opens or closes a repository, as a click on its heading does. */
+  const toggle = (index: number, open: boolean) => { details[index].open = open; details[index].dispatch('toggle'); };
+  const click = () => $('toggle').onclick!();
+  assert.equal($('toggle').textContent, 'Expand all');
+
+  // The only repository left, opened: every one shown is open.
+  type('LI');
+  assert.equal($('toggle').textContent, 'Expand all');
+  toggle(3, true);
+  assert.equal($('toggle').textContent, 'Collapse all');
+  // A click collapses it, and only it.
+  click();
+  assert.deepEqual(details.map((group) => group.open), [false, false, false, false]);
+  assert.equal($('toggle').textContent, 'Expand all');
+  // A click opens the repositories shown, not the ones the filter hides.
+  click();
+  assert.deepEqual(details.map((group) => group.open), [false, false, false, true]);
+  assert.equal($('toggle').textContent, 'Collapse all');
+
+  // The label follows the filter: more repositories shown, some of them closed.
+  type('i');
+  assert.equal($('toggle').textContent, 'Expand all');
+  type('LI');
+  assert.equal($('toggle').textContent, 'Collapse all');
+  type('');
+  assert.equal($('toggle').textContent, 'Expand all');
+  click();
+  assert.deepEqual(details.map((group) => group.open), [true, true, true, true]);
+  assert.equal($('toggle').textContent, 'Collapse all');
+  // No repository shown: nothing to collapse.
+  type('nothing');
+  assert.equal($('toggle').textContent, 'Expand all');
 });
 
 /** The text in an element and all it holds. */
