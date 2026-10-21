@@ -41,9 +41,15 @@
   #skills .name { display: flex; gap: 8px; }
   #skills .name .modified { margin-left: auto; }
   .description, .copies { color: var(--muted); font-size: 13px; }
+  /* In the list, a long description takes two lines at most; the whole of it on hover. */
+  #skills .description { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; }
   /* Out of the way: there, but in grey. */
   .modified { color: var(--muted); font-size: 12px; font-weight: normal; }
   .link { display: block; font-size: 12px; word-break: break-all; color: var(--accent); }
+  /* In the list, only the SKILL.md's path, out of the way; the whole link on hover, and when chosen. */
+  .path { display: block; width: fit-content; font-size: 12px; word-break: break-all; color: var(--muted); text-decoration: none; }
+  .path b { color: var(--accent); }
+  .path:hover { text-decoration: underline; }
   #skill { min-height: 0; padding: 16px 24px; overflow: auto; }
   #skill h2 { margin: 0 0 8px; font-size: 18px; }
   pre { white-space: pre-wrap; word-break: break-word; padding: 16px; border: 1px solid var(--line); border-radius: 6px;
@@ -103,6 +109,14 @@
   /** The link with its path part in bold, as the CLI prints it. */
   const link = (skill) => element('a', { className: 'link', href: skill.link.base + skill.link.path, target: '_blank', rel: 'noopener' },
     skill.link.base, element('b', {}, decodeURIComponent(skill.link.path)));
+  /** In the list: only the path, its directory in grey and its file in bold; the whole link on hover. */
+  const path = (skill) => {
+    const href = skill.link.base + skill.link.path;
+    const file = decodeURIComponent(skill.link.path);
+    const slash = file.lastIndexOf('/') + 1;
+    return element('a', { className: 'path', href, title: href, target: '_blank', rel: 'noopener' },
+      element('span', {}, file.slice(0, slash)), element('b', {}, file.slice(slash)));
+  };
   /** DD-MM-YY, in the local time; '' when it is not known. */
   const day = (date) => {
     if (!date) return '';
@@ -178,8 +192,8 @@
       element('div', { className: 'name' },
         element('span', {}, skill.warnings.length ? element('span', { className: 'flag', title: 'Has a warning: choose it to see it' }, '❗ ') : '', skill.name),
         modified(skill, '')),
-      skill.description ? element('div', { className: 'description' }, skill.description) : '',
-      link(skill),
+      skill.description ? element('div', { className: 'description', title: skill.description }, skill.description) : '',
+      path(skill),
       skill.copies.length ? element('div', { className: 'copies' }, `also in ${skill.copies.join(', ')}`) : '');
     item.dataset.name = skill.name;
     item.addEventListener('click', (event) => { if (!event.target.closest('a')) show(skill, item); });
