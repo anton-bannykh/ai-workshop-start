@@ -48,7 +48,7 @@ test('the page: a field for a repository link, the list of skills and a place fo
   assert.match(page.text, /<ul id="skills">/);
   assert.match(page.text, /<section id="skill">/);
   // The page asks the API, and links with ?repo= scan at once.
-  assert.match(page.text, /fetch\(`\/api\/scan\?repo=\$\{encodeURIComponent\(repo\)\}&progress`\)/);
+  assert.match(page.text, /fetch\(`\/api\/scan\?repo=\$\{encodeURIComponent\(repo\)\}&progress`, \{ signal: scanning\.signal \}\)/);
   assert.equal((await get('/?repo=github.com/JetBrains/example')).text, page.text);
 });
 
@@ -86,10 +86,11 @@ class FakeElement {
   title = '';
   href = '';
   listeners: Record<string, ((event: object) => void)[]> = {};
+  attributes: Record<string, string> = {};
   append(...nodes: (FakeElement | string)[]) { this.children.push(...nodes.filter((node) => node !== '')); }
   replaceChildren(...nodes: (FakeElement | string)[]) { this.children = []; this.append(...nodes); }
   addEventListener(type: string, listener: (event: object) => void) { (this.listeners[type] ??= []).push(listener); }
-  setAttribute() {}
+  setAttribute(name: string, value: string) { this.attributes[name] = value; }
   setSelectionRange() {}
   get firstElementChild() { return this.children[0]; }
   /** The descendants with a tag, or with a class as `.<class>` selects them. */
@@ -132,16 +133,17 @@ async function openPage(repo: string, at = address, query = '') {
     location: { search: `?repo=${encodeURIComponent(repo)}${query}` },
     URLSearchParams,
     TextDecoderStream,
-    fetch: (path: string) => {
+    AbortController,
+    fetch: (path: string, init?: RequestInit) => {
       scans++;
-      return (scanned = fetch(new URL(path, at)));
+      return (scanned = fetch(new URL(path, at), init));
     },
   };
   runInNewContext(`'use strict';\n${script}`, context);
   const $ = document.getElementById;
   const done = async () => {
-    await scanned;
-    while ($('scan').disabled || $('summary').textContent === 'Scanning…') await new Promise(setImmediate);
+    await scanned.catch(() => {});
+    while ($('form').attributes['aria-busy'] === 'true') await new Promise(setImmediate);
   };
   await done();
   /** The names of the skills listed, and the names shown by the filter. */
@@ -153,7 +155,7 @@ async function openPage(repo: string, at = address, query = '') {
   const rescan = async () => { $('form').dispatch('submit'); await done(); };
   /** What the address says is shown. */
   const url = () => shownAt;
-  return { page, $, listed, type, rescan, scans: () => scans, url, chosen: () => ($('skill').children[0] as FakeElement).children[0] };
+  return { page, $, listed, type, rescan, done, scans: () => scans, url, chosen: () => ($('skill').children[0] as FakeElement).children[0] };
 }
 
 test('a filter on the top right: as you type, only the skills whose name contains it, ignoring case; no new scan', async () => {
@@ -299,6 +301,43 @@ test('while an organization is scanned, the page shows how far it is', async () 
   assert.equal(summaries[0], 'Scanning…');
   assert.match(summaries[1], /^Scanning… 0 of 3 repositories, 0 skills so far$/);
   assert.deepEqual(summaries.slice(-2), ['Scanning… 6 of 6 repositories, 4 skills so far', 'JetBrains · 4 skills in 3 repositories · 6 scanned']);
+});
+
+// #36: a link entered while a scan ran was dropped, and the earlier scan was shown under it.
+// The same as the web view, with the organization's scan held until the test lets it go on.
+let release = () => {};
+const held = createWebServer(async (input) => {
+  if (input === 'https://github.com/JetBrains') await new Promise<void>((resolve) => { release = resolve; });
+  return open(input);
+});
+const heldAddress = await listen(held, 0);
+after(() => { release(); held.close(); });
+
+test('a link entered while a scan runs: scanned at once, the earlier scan given up; only the last one is shown', async () => {
+  const { $, done, scans, url } = await openPage('', heldAddress);
+  const shown: string[] = [];
+  let summary = '';
+  Object.defineProperty($('summary'), 'textContent', { get: () => summary, set: (value: string) => { summary = value; shown.push(value); } });
+  $('repo').value = 'https://github.com/JetBrains';
+  $('form').dispatch('submit');
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  // Scan stays enabled while it scans: a disabled default button makes the browser ignore Enter in the field.
+  assert.equal($('scan').disabled, false);
+  assert.equal($('form').attributes['aria-busy'], 'true');
+  $('repo').value = 'https://github.com/JetBrains/example';
+  $('form').dispatch('submit');
+  await done();
+  assert.equal(scans(), 2);
+  assert.equal(summary, 'JetBrains/example · 1 skill');
+  assert.equal(url(), `?repo=${encodeURIComponent('https://github.com/JetBrains/example')}`);
+  // The organization's scan, let go on now, changes nothing: neither its result nor an error.
+  shown.length = 0;
+  release();
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.deepEqual(shown, []);
+  assert.equal(summary, 'JetBrains/example · 1 skill');
+  assert.deepEqual($('messages').children, []);
+  assert.equal(url(), `?repo=${encodeURIComponent('https://github.com/JetBrains/example')}`);
 });
 
 test('a GitHub repository: its skills with name, description, pinned link and their SKILL.md', async () => {

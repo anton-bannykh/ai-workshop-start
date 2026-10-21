@@ -6,8 +6,8 @@ async function scan(page: Page, repo: string) {
   await page.goto('/');
   await page.locator('#repo').fill(repo);
   await page.locator('#scan').click();
-  // Scan is disabled while it scans: enabled again, the page shows the result or the error.
-  await expect(page.locator('#scan')).toBeEnabled();
+  // The form is busy while it scans: no longer, the page shows the result or the error.
+  await expect(page.locator('#form')).toHaveAttribute('aria-busy', 'false');
 }
 
 const skill = (page: Page, name: string) => page.locator('#skills li.skill', { has: page.locator('.name', { hasText: name }) });
@@ -92,6 +92,30 @@ test('a repository that does not exist: a clear message', async ({ page }) => {
   await expect(page).toHaveScreenshot('not-found.png');
 });
 
+test('a link entered while a scan runs: Enter scans it at once, the earlier scan given up and never shown', async ({ page }) => {
+  // The organization's scan held, as a long one is still running.
+  let release = () => {};
+  await page.route(/\/api\/scan\?repo=https%3A%2F%2Fgithub\.com%2FJetBrains&progress$/, async (route) => {
+    await new Promise<void>((resolve) => { release = resolve; });
+    await route.continue().catch(() => {}); // Given up by the page by now.
+  });
+  await page.goto('/');
+  await page.locator('#repo').fill('https://github.com/JetBrains');
+  await page.locator('#repo').press('Enter');
+  await expect(page.locator('#form')).toHaveAttribute('aria-busy', 'true');
+  await expect(page.locator('#scan')).toBeEnabled();
+  await page.locator('#repo').fill('https://github.com/JetBrains/example');
+  await page.locator('#repo').press('Enter');
+  await expect(page.locator('#form')).toHaveAttribute('aria-busy', 'false');
+  await expect(page.locator('#summary')).toHaveText('JetBrains/example · 1 skill');
+  await expect(page).toHaveURL(`/?repo=${encodeURIComponent('https://github.com/JetBrains/example')}`);
+  release();
+  await page.waitForTimeout(500);
+  await expect(page.locator('#summary')).toHaveText('JetBrains/example · 1 skill');
+  await expect(page.locator('#repo')).toHaveValue('https://github.com/JetBrains/example');
+  await expect(page).toHaveScreenshot('scan-while-scanning.png');
+});
+
 test('/?repo=<link> opens the page with that repository scanned', async ({ page }) => {
   await page.goto(`/?repo=${encodeURIComponent('https://github.com/JetBrains/example')}`);
   await expect(page.locator('#summary')).toHaveText('JetBrains/example · 1 skill');
@@ -126,7 +150,7 @@ test('Tab completes the sample link on the groups too', async ({ page }) => {
 /** The groups, with the repository scanned. */
 async function groups(page: Page, repo: string) {
   await page.goto(`/?repo=${encodeURIComponent(repo)}&view=groups`);
-  await expect(page.locator('#scan')).toBeEnabled();
+  await expect(page.locator('#form')).toHaveAttribute('aria-busy', 'false');
   await expect(page.locator('#groups-summary')).not.toHaveText('Scanning…');
 }
 
