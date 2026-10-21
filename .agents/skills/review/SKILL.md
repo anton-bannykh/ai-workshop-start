@@ -39,3 +39,12 @@ Give a short, honest review. Aim for something a busy teammate reads in a minute
 ```
 
 Keep it brief: skip empty sections, don't pad with praise, don't nitpick style the codebase doesn't care about. Don't edit code unless asked.
+
+## Notify
+
+When the review of a PR is done, tell the Slack channel `C0CAS41KRD3`, with `slack_post` as
+[issue-to-pr](../issue-to-pr/SKILL.md#slack) says: the PR, the verdict and the main points in a few lines, and
+a link to the full review.
+
+The link: if the review isn't on the PR yet, post it (`gh pr comment <number> --repo anton-bannykh/ai-workshop-start
+--body-file …` prints the comment's link). If whoever ran you posts it for you, link the PR.
