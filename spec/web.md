@@ -23,6 +23,7 @@ Listens on *127.0.0.1* only; *nothing is stored*.
   also one with no skills
 - A skill with a warning: in the list, *only* ❗ by its name; choosing it shows the warning, above its SKILL.md
 - While an organization is scanned: `Scanning… 5 of 688 repositories, 57 skills so far`
+- A new scan clears what the last one showed: the list, and the chosen SKILL.md and group, `Scanning…` in their place
 - Warnings and errors shown on the page; the other warnings out of the way, in a *collapsed* group: `❗ N warnings`
 - `/?repo=<link>` opens the page with that repository scanned
 - **Skills** / **Groups**, as buttons by the title: two views of *the same scan*, in the page, not two pages: no new scan;
@@ -51,6 +52,7 @@ same in them and what is not
     a blank line, the front matter's `---`
 - **Similar skills →**, or `/?repo=<link>&view=groups&skill=<id>`: the first group of that skill chosen, the skill marked in the list and in its column,
   and first in **Compare two**; a skill in no group → `No other skill here shares a word of its name with <path>.`
+  A skill not in the scan → as for no skill: the first group chosen, the address without `&skill`
 - No two skills share a word → `No two skills here share a word of their names.`
 - Warnings, all of them, each naming its SKILL.md (and its repository), in a *collapsed* group: `❗ N warnings`;
   errors as for the skills

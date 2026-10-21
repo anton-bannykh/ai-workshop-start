@@ -179,3 +179,29 @@ test('groups opened from a skill’s link: its group chosen, the skill marked; n
   await expect(page.locator('.column.wanted .name')).toHaveText('security-review');
   await expect(page).toHaveScreenshot('groups-skill.png');
 });
+
+/** Scans `repo` from the field, the page showing what it did, and holds the scan's answer while it is screenshot. */
+async function rescanHeld(page: Page, repo: string) {
+  await page.route('**/api/scan**', () => {}); // Never answered: the scan runs on.
+  await page.locator('#repo').fill(repo);
+  await page.locator('#scan').click();
+  await expect(page.locator('#scan')).toBeDisabled();
+}
+
+test('a new scan clears what the last one showed: the chosen SKILL.md too, Scanning… in its place', async ({ page }) => {
+  await scan(page, 'https://github.com/JetBrains/playbook');
+  await skill(page, 'security-review').locator('.name').click();
+  await rescanHeld(page, 'https://github.com/JetBrains/handbook');
+  await expect(page.locator('#summary')).toHaveText('Scanning…');
+  await expect(page.locator('#skill')).toHaveText('Scanning…');
+  await expect(page).toHaveScreenshot('rescanning.png');
+});
+
+test('groups: a new scan clears the chosen group too, Scanning… in its place', async ({ page }) => {
+  await groups(page, 'https://github.com/JetBrains/playbook');
+  await expect(page.locator('#group h2')).not.toHaveCount(0);
+  await rescanHeld(page, 'https://github.com/JetBrains/handbook');
+  await expect(page.locator('#groups-summary')).toHaveText('Scanning…');
+  await expect(page.locator('#group')).toHaveText('Scanning…');
+  await expect(page).toHaveScreenshot('groups-rescanning.png');
+});
