@@ -13,7 +13,8 @@ on the issue that the next person can start from.
 - An issue number or link, as given.
 - Read it all, the conversation too: `gh issue view <number> --repo anton-bannykh/ai-workshop-start --comments`.
   Note what is reported: the steps, what was expected, what happened, the version or environment.
-- If it isn't a bug (a feature request, a question) or is too vague to reproduce, ask the user before going on.
+- If it isn't a bug (a feature request, a question) or is too vague to reproduce, [ask](#ask-in-slack) before
+  going on.
 
 ## Before you start
 
@@ -21,6 +22,36 @@ Mark that you started working - put an eyes emoji on the issue:
 `gh api repos/anton-bannykh/ai-workshop-start/issues/<number>/reactions -f content=eyes`.
 
 Branch off a current `main`: `git switch main && git pull && git switch -c fix/<number>-<short-slug>`.
+
+## Ask in Slack
+
+When the issue leaves a decision open, or you need something clarified — at any step — ask in the Slack channel
+`C0CAS41KRD3`, wait, take the replies into account, and go on.
+
+1. Collect your questions into one message: the issue's link, then each question numbered, with the options you
+   see and the one you would pick. Ask only what changes what you do.
+2. Post it. The bot token is in `SLACK_BOT_TOKEN`; don't print it.
+
+   ```sh
+   ts=$(jq -n --arg text "$message" '{channel: "C0CAS41KRD3", text: $text}' |
+     curl -s -X POST https://slack.com/api/chat.postMessage \
+       -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H 'Content-Type: application/json; charset=utf-8' -d @- |
+     jq -er .ts)
+   ```
+
+3. Wait for replies in the message's thread for **at least 10 minutes**, even if a first reply comes sooner
+   (someone else may add to it or disagree); longer while a discussion is still going. Check once a minute:
+
+   ```sh
+   curl -s -G https://slack.com/api/conversations.replies -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+     --data-urlencode channel=C0CAS41KRD3 --data-urlencode ts="$ts" |
+     jq -r '.messages[1:][] | "\(.user): \(.text)"'
+   ```
+
+   If `chat.postMessage` or `conversations.replies` returns `"ok": false`, say so in the report with the error,
+   and go on as below without waiting.
+4. Take the answers into account. A question nobody answered: go on with the option you proposed, and say so —
+   in the PR description's **Uncertainty**, or in the issue comment.
 
 ## 1. Find the root cause
 
@@ -80,7 +111,8 @@ Branch off a current `main`: `git switch main && git pull && git switch -c fix/<
 ## If you can't fix it
 
 Can't reproduce it, can't find the cause, or the fix needs a decision that isn't yours (a change to the spec,
-a breaking change): don't open a PR with a guess. Post the investigation on the issue instead:
+a breaking change) — and [asking](#ask-in-slack) didn't settle it: don't open a PR with a guess. Post the
+investigation on the issue instead:
 
 - what you tried, and what happened;
 - what you found: the code involved (`file:line`), what you ruled out and how;
@@ -92,4 +124,5 @@ A failing test that reproduces the bug is worth keeping even without a fix: push
 ## Report
 
 To the user: the issue and the PR (or the issue comment) with links; the root cause in a sentence or two, and how
-it differs from the report, if it does; what ran and what didn't; and what you're still unsure of.
+it differs from the report, if it does; what you asked in Slack and the answers; what ran and what didn't; and what
+you're still unsure of.
