@@ -1,6 +1,6 @@
 ---
 name: issue-to-pr
-description: Fix the bug a GitHub issue describes — find the root cause, reproduce it in a test, fix it, verify, open a PR that references the issue, and review it, keeping a Slack channel posted; if it can't be fixed, post the investigation on the issue. Use when asked to fix, resolve, or work on an issue (a number or a link) in this repository.
+description: Fix the bug a GitHub issue describes — find the root cause, reproduce it in a test, fix it, verify, and open a PR that references the issue, keeping a Slack channel posted; if it can't be fixed, post the investigation on the issue. Use when asked to fix, resolve, or work on an issue (a number or a link) in this repository.
 ---
 
 # Issue to PR
@@ -45,8 +45,6 @@ If Slack answers `"ok": false`, `slack_post` prints the error and fails: say so 
 - **Starting:** when you start on the issue: its link and title, and that you're on it.
 - **Done:** when the PR is open and CI is green: the PR's link and a sentence on the root cause and the fix.
   If you couldn't fix it: the link to the issue comment with the investigation, and what would unblock it.
-- **Reviewed:** when the [review](#6-review-it) is done: a summary — the verdict and the main points, a few
-  lines — and the link to the full review on the PR.
 
 ### Ask
 
@@ -123,15 +121,6 @@ take the replies into account, and go on.
 3. Wait for CI: `gh pr checks <number> --repo anton-bannykh/ai-workshop-start --watch`. It must be green.
 4. [Notify](#notify) the channel that it's done.
 
-## 6. Review it
-
-1. Review the PR with the [review](../review/SKILL.md) skill.
-2. Post the full review as a PR comment, and keep its link:
-   `gh pr comment <number> --repo anton-bannykh/ai-workshop-start --body-file …` prints it.
-3. [Notify](#notify) the channel: the summary, and the link.
-
-Fix nothing the review found on your own: it's for the reviewers to weigh, with the PR.
-
 ## If you can't fix it
 
 Can't reproduce it, can't find the cause, or the fix needs a decision that isn't yours (a change to the spec,
@@ -149,5 +138,5 @@ Then [notify](#notify) the channel.
 ## Report
 
 To the user: the issue and the PR (or the issue comment) with links; the root cause in a sentence or two, and how
-it differs from the report, if it does; what you asked in Slack and the answers; the review's verdict; what ran and what didn't; and what
+it differs from the report, if it does; what you asked in Slack and the answers; what ran and what didn't; and what
 you're still unsure of.
