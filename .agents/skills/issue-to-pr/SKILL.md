@@ -27,18 +27,32 @@ Branch off a current `main`: `git switch main && git pull && git switch -c fix/<
 ## Slack
 
 The channel `C0CAS41KRD3` hears about the job as it goes, and is where you ask. The bot token is in
-`SLACK_BOT_TOKEN`; don't print it. To post a message, and keep its `ts` for reading the replies:
+`SLACK_BOT_TOKEN`; don't print it. To post a message — or, with a thread's `ts`, a reply in that thread — and
+keep its `ts` for reading the replies:
 
 ```sh
 slack_post() {
-  jq -n --arg text "$1" '{channel: "C0CAS41KRD3", text: $text}' |
+  jq -n --arg text "$1" --arg thread "${2:-}" \
+    '{channel: "C0CAS41KRD3", text: $text} + if $thread != "" then {thread_ts: $thread} else {} end' |
     curl -s -X POST https://slack.com/api/chat.postMessage \
       -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H 'Content-Type: application/json; charset=utf-8' -d @- |
     jq -r 'if .ok then .ts else "Slack: \(.error)\n" | halt_error end'
 }
 ```
 
-If Slack answers `"ok": false`, `slack_post` prints the error and fails: say so in the report, and go on without it.
+To mark a message as read, a 🫡 on it, by its `ts`:
+
+```sh
+slack_ack() {
+  jq -n --arg ts "$1" '{channel: "C0CAS41KRD3", timestamp: $ts, name: "saluting_face"}' |
+    curl -s -X POST https://slack.com/api/reactions.add \
+      -H "Authorization: Bearer $SLACK_BOT_TOKEN" -H 'Content-Type: application/json; charset=utf-8' -d @- |
+    jq -r 'if .ok or .error == "already_reacted" then empty else "Slack: \(.error)\n" | halt_error end'
+}
+```
+
+If Slack answers `"ok": false`, these print the error and fail: say so in the report, and go on without it. A
+`missing_scope` from `slack_ack` means the bot can't react (it needs `reactions:write`): go on without the 🫡.
 
 ### Notify
 
@@ -59,11 +73,19 @@ take the replies into account, and go on.
    ```sh
    curl -s -G https://slack.com/api/conversations.replies -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
      --data-urlencode channel=C0CAS41KRD3 --data-urlencode ts="$ts" |
-     jq -r '.messages[1:][] | "\(.user): \(.text)"'
+     jq -r '.messages[1:][] | select(.bot_id == null) | "\(.ts) \(.user): \(.text)"'
    ```
 
-3. Take the answers into account. A question nobody answered: go on with the option you proposed, and say so —
-   in the PR description's **Uncertainty**, or in the issue comment.
+   **Acknowledge each reply as soon as you have read it:** `slack_ack <its ts>`, so whoever wrote it knows it
+   was seen. Every reply, once; the ones you have acknowledged are those you have read.
+3. Still unclear? An answer that is ambiguous, contradicts another, or raises a new question: ask a follow-up
+   **in the same thread**, `slack_post "$follow_up" "$ts"`, naming who you ask (`<@USER>`) and, again, the option
+   you would pick. Then wait as in step 2 — at least 10 minutes from the follow-up — and acknowledge the replies.
+   Repeat until it's clear, or until a follow-up gets no answer; at most three rounds, then go on with the best
+   option you have.
+4. Take the answers into account. A question nobody answered: go on with the option you proposed, and say so —
+   in the PR description's **Uncertainty**, or in the issue comment. Before going on, say in the thread what you
+   decided, in a sentence: `slack_post "$decision" "$ts"`.
 
 ## 1. Find the root cause
 
