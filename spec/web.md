@@ -17,8 +17,8 @@ Listens on *127.0.0.1* only; *nothing is stored*.
 - Choosing a skill shows **its SKILL.md**, *formatted*: the front matter as a table, the Markdown rendered
 - A **Raw** tab: the SKILL.md as it is in the file
 - An organization: `<owner> · N skills in M repositories · S scanned`; each repository a **group** with its heading,
-  `<id> · N skills`, *collapsed* until opened; **Expand all** / **Collapse all**;
-  the filter hides a group with no skill it keeps
+  `<id> · N skills`, *collapsed* until opened; **Expand all** / **Collapse all**, of the groups *shown*: **Collapse all**
+  once each one shown is open, as the filter changes too; the filter hides a group with no skill it keeps
 - A repository with warnings, its own or a skill's: ❗ in its heading; its own *in its group*, above its skills;
   also one with no skills
 - A skill with a warning: in the list, *only* ❗ by its name; choosing it shows the warning, above its SKILL.md

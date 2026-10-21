@@ -86,6 +86,15 @@ test('an organization, filtered: groups that keep nothing are hidden', async ({ 
   await expect(page).toHaveScreenshot('organization-filter.png');
 });
 
+test('an organization, filtered, its one repository left opened: Collapse all', async ({ page }) => {
+  await scan(page, 'https://github.com/JetBrains');
+  await page.locator('#filter').fill('lint');
+  await expect(page.locator('#toggle')).toHaveText('Expand all');
+  await page.locator('#skills .repository:not([hidden]) summary').click();
+  await expect(page.locator('#toggle')).toHaveText('Collapse all');
+  await expect(page).toHaveScreenshot('organization-filter-opened.png');
+});
+
 test('a repository that does not exist: a clear message', async ({ page }) => {
   await scan(page, 'https://github.com/JetBrains/no-such-repository');
   await expect(page.locator('#messages .error')).toHaveText('Repository not found: https://github.com/JetBrains/no-such-repository');

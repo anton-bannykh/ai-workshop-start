@@ -226,6 +226,8 @@
   const kept = (shown, all, one, many) => (filtering() ? `${shown} of ${count(all, one, many)}` : count(all, one, many));
   /** The summary for the skills the filter keeps, and how many each repository keeps; null while there is no result. */
   let summarize = null;
+  /** Sets Expand all / Collapse all by the repositories shown; null while no organization is shown. */
+  let labelToggle = null;
 
   /**
    * Filters the listed skills by name, in the page: no new scan. While filtering, a repository's group
@@ -246,6 +248,7 @@
       if (items.length > 0) repositories.push(keeps);
     }
     if (summarize) $('summary').textContent = summarize(shown, repositories);
+    if (labelToggle) labelToggle();
     $('no-match').hidden = shown > 0 || $('skills').children.length === 0;
   }
   // One filter for both views: the skills by name, and the groups by their skills' names.
@@ -274,6 +277,7 @@
   function render(body) {
     $('messages').replaceChildren(...(body.warnings.length ? [warningsGroup(body.warnings)] : []));
     $('toggle').replaceChildren();
+    labelToggle = null;
     if (body.organization) return renderOrganization(body);
     const { repository, skills } = body;
     summarize = (shown) => `${repository.id} · ${kept(shown, skills.length, 'skill', 'skills')}`;
@@ -303,12 +307,15 @@
         element('summary', {}, warned(warnings, skills) ? '❗ ' : '', `${repository.id} · `, element('span', { className: 'count' })),
         ...warnings.map(warning),
         element('ul', {}, ...skills.map(skillItem))))));
+    const groups = [...$('skills').querySelectorAll('.repository')].map((item) => ({ item, details: item.querySelectorAll('details')[0] }));
+    // Only the repositories shown count, and only they are opened or closed: the ones the filter hides aren't there for the user.
+    const shown = () => groups.filter(({ item }) => !item.hidden).map(({ details }) => details);
+    const closed = () => { const open = shown(); return open.length === 0 || open.some((details) => !details.open); };
+    const label = () => { $('toggle').textContent = closed() ? 'Expand all' : 'Collapse all'; };
+    for (const { details } of groups) details.addEventListener('toggle', label);
+    $('toggle').onclick = () => { const open = closed(); for (const details of shown()) details.open = open; label(); };
+    if (groups.length) labelToggle = label;
     applyFilter();
-    const groups = [...$('skills').querySelectorAll('details')];
-    const label = () => { $('toggle').textContent = groups.some((group) => !group.open) ? 'Expand all' : 'Collapse all'; };
-    for (const group of groups) group.addEventListener('toggle', label);
-    $('toggle').onclick = () => { const open = groups.some((group) => !group.open); for (const group of groups) group.open = open; label(); };
-    if (groups.length) label();
     $('skill').replaceChildren(element('p', { className: 'empty' },
       withSkills ? 'Open a repository, then choose a skill to see its SKILL.md.' : 'No skills here.'));
   }
@@ -517,6 +524,7 @@
     remember();
     $('scan').disabled = true;
     summarize = null;
+    labelToggle = null;
     summarizeGroups = null;
     $('summary').textContent = 'Scanning…';
     $('groups-summary').textContent = 'Scanning…';
@@ -548,6 +556,7 @@
       }
     } catch (error) {
       summarize = null;
+      labelToggle = null;
       summarizeGroups = null;
       $('summary').textContent = '';
       $('groups-summary').textContent = '';
