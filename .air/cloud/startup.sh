@@ -49,5 +49,15 @@ healthcheck() {
   log "healthcheck: OK"
 }
 
-if [ -n "${WARMUP:-}" ]; then healthcheck; fi
+# The visual tests run natively on Ubuntu 24.04 x86_64 (scripts/visual.sh): Chromium and its system
+# dependencies, ready for them. Without sudo, they say what to run.
+visual_deps() {
+  if ( . /etc/os-release && [ "$ID-$VERSION_ID-$(uname -m)" = ubuntu-24.04-x86_64 ] ) 2>/dev/null; then
+    log "visual tests: chromium"
+    npx playwright install chromium
+    if sudo -n true 2>/dev/null; then sudo -n env PATH="$PATH" npx playwright install-deps chromium; else log "no sudo: skipping Chromium's system dependencies"; fi
+  fi
+}
+
+if [ -n "${WARMUP:-}" ]; then healthcheck; visual_deps; fi
 log "done"

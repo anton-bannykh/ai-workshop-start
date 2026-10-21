@@ -22,7 +22,7 @@ a repository link, its skills, and each skill's SKILL.md.
 
 Set `GITHUB_TOKEN` for a higher GitHub rate limit. `npm test` runs the tests; `npm run test:e2e`,
 with `GITHUB_TOKEN` set, runs the CLI against real JetBrains repositories on GitHub; `npm run test:visual`,
-with Docker (macOS or Linux), compares the web view with its screenshots in `tests/visual/screenshots/`.
+natively on Ubuntu 24.04 (x86_64), with Docker elsewhere, compares the web view with its screenshots in `tests/visual/screenshots/`.
 
 - [spec/](spec/): what it does. [AGENTS.md](AGENTS.md): the definition of done.
 - [fixture/](fixture/README.md): a small repository for the tests.
