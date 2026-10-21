@@ -20,8 +20,13 @@ differ elsewhere, even on another Linux. Never run `npx playwright test` directl
 
 - **Ubuntu 24.04 on x86_64** (CI, a Linux VM): natively, without Docker. After `npm ci`, once:
   `sudo npx playwright install-deps chromium` (the libraries and fonts Chromium needs). It installs Chromium
-  itself. To use Docker anyway: `SKILL_ATLAS_VISUAL_DOCKER=1 npm run test:visual`.
-- **Anywhere else:** in Docker, as below.
+  itself.
+- **Another Linux:** it first runs the visual tests of `origin/main`, whose screenshots are known good, natively,
+  in a worktree of their own. They pass: this machine renders as the image does, and the tests run natively.
+  They don't: in Docker. It says which, and keeps the answer in `~/.cache/skill-atlas/visual` until the system,
+  its fonts, Playwright or main's screenshots change (delete the file it names to ask again, e.g. after
+  `install-deps`). Debian 12, for one, differs by a few hundred pixels: Docker.
+- **macOS, or `SKILL_ATLAS_VISUAL_DOCKER=1`:** in Docker, as below.
 
 ## Docker
 
