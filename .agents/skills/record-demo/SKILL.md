@@ -36,6 +36,8 @@ export default async function filter({ page, click, type, pause }: Demo) {
 }
 ```
 
+- A long wait, such as an organization's scan: `speedUp(() => …wait…, times)` plays it `times` faster
+  (8 by default), so the demo doesn't stall; what the page shows meanwhile still plays, just quicker.
 - Use the mouse for what a user clicks (`click`, `type`), not `locator.click()`: the demo shows the mouse.
 - Click a skill by its `.name`: the rest of the item holds its link, which opens GitHub.
 - Scan GitHub repositories, such as JetBrains/kotlin or JetBrains/MPS. Not a local directory: its `file://`
