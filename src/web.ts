@@ -24,7 +24,14 @@ export function createWebServer(open: (input: string) => Promise<Source | Organi
     // Only the page itself asks: another Host is another site, rebound to this address.
     const host = request.headers.host ?? '';
     if (!/^(?:127\.0\.0\.1|localhost)(?::\d+)?$/.test(host)) return json(403, { error: `Not a local address: ${host}` });
-    const url = new URL(request.url ?? '/', `http://${host}`);
+    // The target is a path, even one starting with `//`: no other host, nothing in it read as one.
+    const target = request.url ?? '/';
+    let url: URL;
+    try {
+      url = new URL(target.startsWith('/') ? `http://${HOST}${target}` : target);
+    } catch {
+      return json(400, { error: `Not a request target: ${target}` });
+    }
     if (request.method !== 'GET') return json(405, { error: `Not allowed: ${request.method}` });
     if (url.pathname === '/') return send(200, 'text/html; charset=utf-8', PAGE);
     if (url.pathname !== '/api/scan') return json(404, { error: `Not found: ${url.pathname}` });

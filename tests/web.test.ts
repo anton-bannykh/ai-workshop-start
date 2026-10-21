@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { request } from 'node:http';
+import { connect } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -477,6 +478,30 @@ test('unknown paths → 404; other methods → 405', async () => {
   assert.deepEqual(JSON.parse(unknown.text), { error: 'Not found: /nothing-here' });
   const posted = await fetch(new URL('/api/scan?repo=x', address), { method: 'POST' });
   assert.equal(posted.status, 405);
+});
+
+/** The status of a request sent as it is, byte for byte: no client to normalize its target. */
+function sentRaw(target: string, host = new URL(address).host): Promise<number> {
+  const { port } = new URL(address);
+  return new Promise((resolve, reject) => {
+    const socket = connect(Number(port), '127.0.0.1', () => socket.end(`GET ${target} HTTP/1.1\r\nHost: ${host}\r\nConnection: close\r\n\r\n`));
+    let answer = '';
+    socket.on('data', (chunk) => (answer += chunk));
+    socket.on('end', () => resolve(Number(/^HTTP\/1\.1 (\d{3})/.exec(answer)?.[1] ?? 0)));
+    socket.on('error', reject);
+  });
+}
+
+// A path starting with `//` is still a path, not another host (issue #40): one that isn't a valid
+// authority used to throw in the handler and stop the server.
+test('a path starting with // is an unknown path → 404; no request target or Host stops the server', async () => {
+  for (const target of ['//a:b/', '//[/', '//%/', '//@/', '//:/', '//a:99999/', '//x:y']) {
+    assert.equal(await sentRaw(target), 404, target);
+  }
+  assert.equal(await sentRaw('//api/scan?repo=x'), 404);
+  assert.equal(await sentRaw('http://a:b/'), 400);
+  assert.equal(await sentRaw('/', '127.0.0.1:99999'), 200);
+  assert.equal((await get('/')).status, 200);
 });
 
 test('another Host than the local address → 403', async () => {
