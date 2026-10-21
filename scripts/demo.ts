@@ -27,6 +27,8 @@ export type Demo = {
   scroll(target: Locator, pixels: number): Promise<void>;
   /** Time for the viewer to see what changed. */
   pause(ms?: number): Promise<void>;
+  /** Plays what happens while it runs `times` faster: a wait, such as a long scan, made short. Not nested. */
+  speedUp<T>(work: () => Promise<T>, times?: number): Promise<T>;
 };
 
 // Twice the pixels of the page, as on a high-density screen: GitHub shows it about this wide, sharp.
@@ -70,6 +72,18 @@ async function serve() {
 }
 
 type Frame = { data: Buffer; at: number };
+/** A span of the recording played `times` faster. */
+type Span = { from: number; to: number; times: number };
+
+/** When a moment of the recording is played: the spans before it shortened. */
+function played(at: number, spans: Span[]) {
+  let shift = 0;
+  for (const span of spans) {
+    if (at <= span.from) break;
+    shift += (Math.min(at, span.to) - span.from) * (1 - 1 / span.times);
+  }
+  return at - shift;
+}
 
 async function record(scenario: (demo: Demo) => Promise<void>, out: string, name: string) {
   const server = await serve();
@@ -82,6 +96,7 @@ async function record(scenario: (demo: Demo) => Promise<void>, out: string, name
     const page = await context.newPage();
     let at = { x: SIZE.width / 2, y: SIZE.height / 2 };
     const pause = (ms = 800) => page.waitForTimeout(ms);
+    const spans: Span[] = [];
     const move = async (target: Locator) => {
       await target.scrollIntoViewIfNeeded();
       const box = await target.boundingBox();
@@ -125,6 +140,14 @@ async function record(scenario: (demo: Demo) => Promise<void>, out: string, name
         await pause(400);
       },
       pause,
+      speedUp: async (work, times = 8) => {
+        const from = performance.now();
+        try {
+          return await work();
+        } finally {
+          spans.push({ from, to: performance.now(), times });
+        }
+      },
     };
     await page.goto(server.address);
     await page.mouse.move(at.x, at.y);
@@ -152,7 +175,9 @@ async function record(scenario: (demo: Demo) => Promise<void>, out: string, name
       recording = false;
       await capturing;
     }
-    const end = performance.now();
+    // The sped-up spans shortened: each frame at the moment it is played.
+    for (const frame of frames) frame.at = played(frame.at, spans);
+    const end = played(performance.now(), spans);
 
     mkdirSync(out, { recursive: true });
     const webp = join(out, `${name}.webp`);
