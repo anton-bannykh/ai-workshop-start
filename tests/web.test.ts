@@ -493,6 +493,58 @@ test('another Host than the local address → 403', async () => {
   assert.equal((await fetch(`http://localhost:${port}/`)).status, 200);
 });
 
+// Another page in the user's browser sends the local Host too; its Sec-Fetch-Site or Origin tells it apart.
+test('a scan asked by another site → 403, before anything is scanned', async () => {
+  const opened: string[] = [];
+  const watched = createWebServer(async (input) => (opened.push(input), open(input)));
+  const watchedAddress = await listen(watched, 0);
+  try {
+    const scan = (headers: Record<string, string>, progress = '') =>
+      fetch(new URL(`/api/scan?repo=${encodeURIComponent(FIXTURE)}${progress}`, watchedAddress), { headers });
+    const watchedHost = new URL(watchedAddress).host;
+    const others: Record<string, string>[] = [
+      { 'Sec-Fetch-Site': 'cross-site' },
+      { 'Sec-Fetch-Site': 'same-site' },
+      { Origin: 'https://evil.example' },
+      { Origin: 'http://localhost:8123' },
+      { Origin: 'null' },
+      { Origin: 'https://evil.example', 'Sec-Fetch-Site': 'cross-site' },
+      { Origin: `http://${watchedHost}`, 'Sec-Fetch-Site': 'same-site' },
+    ];
+    for (const headers of others) {
+      for (const progress of ['', '&progress']) {
+        const response = await scan(headers, progress);
+        assert.equal(response.status, 403, JSON.stringify(headers));
+        assert.deepEqual(await response.json(), { error: 'Only the page itself can ask for a scan' });
+      }
+    }
+    assert.deepEqual(opened, []);
+
+    // The page itself, a scan typed into the address bar, and a client with neither header are answered.
+    const answered: Record<string, string>[] = [{ 'Sec-Fetch-Site': 'same-origin', Origin: `http://${watchedHost}` }, { 'Sec-Fetch-Site': 'none' }, {}];
+    for (const headers of answered) {
+      assert.equal((await scan(headers)).status, 200, JSON.stringify(headers));
+    }
+    assert.equal(opened.length, 3);
+    // A link from another site still opens the page, in a tab of its own, which then scans.
+    const linked = await fetch(new URL('/?repo=github.com/JetBrains/example', address), { headers: { 'Sec-Fetch-Site': 'cross-site' } });
+    assert.equal(linked.status, 200);
+  } finally {
+    watched.close();
+  }
+});
+
+test('no page can frame the web view: every answer says so', async () => {
+  for (const path of ['/', '/?repo=x', `/api/scan?repo=${encodeURIComponent(FIXTURE)}`, `/api/scan?repo=${encodeURIComponent(FIXTURE)}&progress`, '/nothing-here']) {
+    const response = await fetch(new URL(path, address));
+    await response.arrayBuffer();
+    assert.equal(response.headers.get('content-security-policy'), "frame-ancestors 'none'", path);
+    assert.equal(response.headers.get('x-frame-options'), 'DENY', path);
+  }
+  const refused = await fetch(new URL('/api/scan?repo=x', address), { headers: { 'Sec-Fetch-Site': 'cross-site' } });
+  assert.equal(refused.headers.get('x-frame-options'), 'DENY');
+});
+
 test('serve: a bad port or a port in use → a clear message, exit code 1', async () => {
   const errors: string[] = [];
   const context = { open, print: () => {}, error: (text: string) => errors.push(text) };

@@ -65,6 +65,9 @@ with skills or warnings, each with its own; `scanned`, how many repositories wer
 its `text`, split at `\n`, `\r\n` or `\r`, the last line end left out
 `&progress` → `application/x-ndjson`: `{ progress: { done, total, skills } }` as each repository is done,
 then `{ result }`, the same JSON; or `{ status, error }`. The page asks this way
+*Only the page itself* scans: asked by another site → `403 { error }`, before anything is scanned: a
+`Sec-Fetch-Site` other than `same-origin` (or `none`, the address bar), or an `Origin` other than the page's.
+A link to `/?repo=<link>` still opens the page, in a tab of its own, which then scans
 ## Formatting
 - Any repository's file: *nothing in it runs*. Raw HTML → shown as text (a block of it as code)
 - Links: `http`, `https`, `mailto`, `file`, `#anchors`; images: `http`, `https`, `file`; others → dropped
@@ -72,3 +75,4 @@ then `{ result }`, the same JSON; or `{ status, error }`. The page asks this way
 - Malformed front matter → shown as it is; its warning, the skill's, above it
 - A clear message → `400 { error }`; unknown paths → `404`; not `GET` → `405`
 - Another `Host` than the local address → `403`
+- No other page can frame it: every answer `Content-Security-Policy: frame-ancestors 'none'`, `X-Frame-Options: DENY`
