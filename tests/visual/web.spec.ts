@@ -191,3 +191,37 @@ test('groups opened from a skill’s link: its group chosen, the skill marked; n
   await expect(page.locator('.column.wanted .name')).toHaveText('security-review');
   await expect(page).toHaveScreenshot('groups-skill.png');
 });
+
+/** Whether all of an element is in view in the pane that scrolls it, across and down. */
+async function inView(page: Page, pane: string, selector: string) {
+  const outer = (await page.locator(pane).boundingBox())!;
+  const inner = (await page.locator(selector).boundingBox())!;
+  return inner.y >= outer.y && inner.y + inner.height <= outer.y + outer.height &&
+    inner.x >= outer.x && inner.x + inner.width <= outer.x + outer.width;
+}
+
+// A window too small for the group, its columns and the list (issue #57): the group opens at its top, its
+// words, count and tabs in view, the skill's column brought in sideways, and its group in the list in view.
+for (const [how, open] of [
+  ['Similar skills →', async (page: Page) => {
+    await scan(page, 'https://github.com/JetBrains/playbook');
+    await skill(page, 'security-review').locator('.name').click();
+    await page.locator('#skill .similar').click();
+  }],
+  ['a link to the groups for a skill', async (page: Page) => {
+    const id = 'JetBrains/playbook:.agents/skills/security-review/SKILL.md';
+    await page.goto(`/?repo=${encodeURIComponent('https://github.com/JetBrains/playbook')}&view=groups&skill=${encodeURIComponent(id)}`);
+  }],
+] as const) {
+  test(`groups opened from ${how} in a small window: the group's heading, count and tabs in view, the skill's column and group too`, async ({ page }) => {
+    await page.setViewportSize({ width: 700, height: 300 });
+    await open(page);
+    await expect(page.locator('.column.wanted .name')).toHaveText('security-review');
+    expect(await page.locator('#group').evaluate((pane) => pane.scrollTop)).toBe(0);
+    for (const selector of ['#group h2', '#group .count', '#group .tabs']) expect(await inView(page, '#group', selector), selector).toBe(true);
+    expect(await page.locator('#columns').evaluate((columns) => columns.scrollLeft)).toBeGreaterThan(0);
+    expect(await inView(page, '#columns', '.column.wanted header'), 'the column').toBe(true);
+    expect(await inView(page, '#groups-list', '#groups .group[aria-selected="true"]'), 'the group in the list').toBe(true);
+    if (how === 'Similar skills →') await expect(page).toHaveScreenshot('groups-skill-small.png');
+  });
+}
