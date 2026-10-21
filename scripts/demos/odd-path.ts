@@ -23,11 +23,12 @@ export default async function oddPath({ page, address, click, pause }: Demo) {
     await click(page.locator('#scan'));
     await page.locator('#skills li.skill').first().waitFor({ timeout: 60_000 });
   };
-  const caption = (text: string) => page.evaluate((text) => {
+  // Drawn by the page, as the cursor is (a string: the page's DOM isn't typed here).
+  const caption = (text: string) => page.evaluate(`{
     const box = document.getElementById('demo-caption') ?? document.body.appendChild(Object.assign(document.createElement('div'), { id: 'demo-caption' }));
     box.style.cssText = 'position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:2147483645;background:#000c;color:#fff;font:15px/1.4 system-ui,sans-serif;padding:8px 14px;border-radius:6px';
-    box.textContent = text;
-  }, text);
+    box.textContent = ${JSON.stringify(text)};
+  }`);
 
   await scan('https://github.com/JetBrains/kotlin');
   await pause(1500);
