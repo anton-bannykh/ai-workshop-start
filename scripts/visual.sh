@@ -3,13 +3,18 @@
 # match on every machine. Arguments go to `playwright test`, e.g. --update-snapshots. node_modules for
 # Linux live in a volume of their own, apart from this checkout's.
 #
-# On Ubuntu 24.04 on x86_64, the image's own system (CI, a Linux VM), they run here instead, without Docker:
-# the same Chromium, fonts and rendering, pixel for pixel. SKILL_ATLAS_VISUAL_DOCKER=1 runs them in Docker anyway.
+# On Linux they run here instead, without Docker, when this machine renders as the image does:
+# - Ubuntu 24.04 on x86_64, the image's own system (CI, a Linux VM): the same Chromium, fonts and
+#   rendering, pixel for pixel;
+# - any other Linux, if the visual tests of origin/main, whose screenshots are known good, pass here. The
+#   answer is kept in ~/.cache/skill-atlas/visual, for this system, its fonts, Playwright and main's
+#   screenshots; if they fail, Docker.
+# SKILL_ATLAS_VISUAL_DOCKER=1 runs them in Docker anyway.
 set -e
 cd "$(dirname "$0")/.."
 IMAGE=mcr.microsoft.com/playwright:v1.63.0-noble
 VOLUME=skill-atlas-visual-node-modules
-FONTS="$PWD/tests/visual/fonts.conf"
+BASE=origin/main
 
 # The image is Ubuntu 24.04 (noble), amd64.
 is_image_system() (
@@ -17,21 +22,88 @@ is_image_system() (
     [ "$ID-$VERSION_ID" = ubuntu-24.04 ]
 )
 
-if [ -z "${SKILL_ATLAS_VISUAL_DOCKER:-}" ] && is_image_system; then
+# The fonts the screenshots were made with, as tests/visual/fonts.conf in that checkout picks them.
+has_fonts() {
+  FONTCONFIG_FILE="$1/tests/visual/fonts.conf" fc-match -f '%{family}' system-ui 2>/dev/null | grep -q 'Liberation Sans' &&
+    FONTCONFIG_FILE="$1/tests/visual/fonts.conf" fc-match -f '%{family}' monospace 2>/dev/null | grep -q 'Liberation Mono'
+}
+
+# The visual tests of a checkout, natively.
+run_native() (
+  cd "$1"
+  shift
+  SKILL_ATLAS_VISUAL=1 FONTCONFIG_FILE="$PWD/tests/visual/fonts.conf" exec npx playwright test "$@"
+)
+
+# Whether this machine renders as the image does: the visual tests of $BASE pass here, in a worktree of
+# their own with this checkout's node_modules. Asked once for each system, fonts, Playwright and $BASE's
+# screenshots.
+renders_like_image() {
+  git fetch -q origin main 2>/dev/null || true
+  screenshots=$(git rev-parse -q --verify "$BASE:tests/visual/screenshots") || return 1
+  key=$(
+    { uname -m; cat /etc/os-release 2>/dev/null; npx playwright --version; echo "$screenshots"
+      for family in system-ui sans-serif monospace; do
+        FONTCONFIG_FILE="$PWD/tests/visual/fonts.conf" fc-match -f '%{file}\n' "$family" 2>/dev/null || true
+      done
+    } | sha256sum | cut -c1-16
+  )
+  cache="${XDG_CACHE_HOME:-$HOME/.cache}/skill-atlas/visual"
+  if [ -f "$cache/$key" ]; then
+    [ "$(cat "$cache/$key")" = native ] && return
+    echo "This machine does not render as the Playwright image does (asked before; to ask again, delete $cache/$key): in Docker, then." >&2
+    return 1
+  fi
+  echo "Does this machine render as the Playwright image does? The visual tests of $BASE, here, without Docker…" >&2
+  mkdir -p "$cache"
+  work=$(mktemp -d)
+  git worktree add -q --detach "$work/main" "$BASE"
+  ln -s "$PWD/node_modules" "$work/main/node_modules"
+  if ! has_fonts "$work/main"; then
+    echo "The screenshots' fonts, Liberation Sans and Mono, are missing: sudo npx playwright install-deps chromium" >"$cache/$key.log"
+    verdict=docker
+  elif run_native "$work/main" --reporter=dot >"$cache/$key.log" 2>&1; then
+    verdict=native
+  else
+    verdict=docker
+  fi
+  git worktree remove --force "$work/main"
+  rm -rf "$work"
+  echo "$verdict" >"$cache/$key"
+  if [ "$verdict" = native ]; then
+    echo 'They pass: no Docker needed here.' >&2
+  else
+    echo "They don't pass (see $cache/$key.log): in Docker, then. To ask again, delete $cache/$key." >&2
+  fi
+  [ "$verdict" = native ]
+}
+
+if [ -z "${SKILL_ATLAS_VISUAL_DOCKER:-}" ] && [ "$(uname -s)" = Linux ]; then
+  if is_image_system; then
+    if [ ! -d node_modules/playwright ]; then
+      echo 'node_modules is missing: run npm ci, then this again.' >&2
+      exit 1
+    fi
+    # Chromium, the build this Playwright pins; already there, it does nothing.
+    npx playwright install chromium
+    # Playwright's system dependencies bring the fonts.
+    if ! has_fonts "$PWD"; then
+      echo "The screenshots' fonts are missing: install Chromium's system dependencies once with" >&2
+      echo '  sudo npx playwright install-deps chromium' >&2
+      exit 1
+    fi
+    run_native "$PWD" "$@"
+    exit
+  fi
+  # Another Linux: without node_modules or Chromium, there is nothing to try; Docker brings its own.
   if [ ! -d node_modules/playwright ]; then
-    echo 'node_modules is missing: run npm ci, then this again.' >&2
-    exit 1
+    echo 'No node_modules here (npm ci) to try the visual tests without Docker: in Docker, then.' >&2
+  elif ! npx playwright install chromium >/dev/null 2>&1; then
+    echo "Playwright cannot install Chromium on this system: in Docker, then." >&2
+  elif renders_like_image; then
+    run_native "$PWD" "$@"
+    exit
   fi
-  # Chromium, the build this Playwright pins; already there, it does nothing.
-  npx playwright install chromium
-  # The fonts the screenshots were made with; Playwright's system dependencies bring them.
-  if ! FONTCONFIG_FILE="$FONTS" fc-match -f '%{family}' system-ui 2>/dev/null | grep -q 'Liberation Sans' ||
-    ! FONTCONFIG_FILE="$FONTS" fc-match -f '%{family}' monospace 2>/dev/null | grep -q 'Liberation Mono'; then
-    echo "The screenshots' fonts are missing: install Chromium's system dependencies once with" >&2
-    echo '  sudo npx playwright install-deps chromium' >&2
-    exit 1
-  fi
-  SKILL_ATLAS_VISUAL=1 FONTCONFIG_FILE="$FONTS" exec npx playwright test "$@"
 fi
 
 if ! docker info >/dev/null 2>&1; then
