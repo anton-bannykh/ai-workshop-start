@@ -30,6 +30,14 @@ test('malformed front matter → the directory name, no description and a warnin
   );
 });
 
+test('a name or description YAML reads as a number is the text the file has', () => {
+  const parsed = parseSkill('---\nname: 1.10\ndescription: 0242\n---\n');
+  assert.equal(parsed.name, '1.10');
+  assert.equal(parsed.description, '0242');
+  // Not a name: true is not text.
+  assert.equal(parseSkill('---\nname: true\n---\n').name, undefined);
+});
+
 test('scan prints the repository, then each skill with its first sentence and pinned link', () => {
   assert.equal(example.code, 0, example.stderr);
   // docs/SKILL.md, also found, is not a skill: it is not read, so nothing is missing.

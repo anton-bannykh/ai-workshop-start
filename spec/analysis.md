@@ -9,7 +9,7 @@ Core: fetch → find → parse. CLI and web view: *thin clients*.
 Skill: id = `repo:path`, name, description, commit, text (the SKILL.md), modified, warnings (its own)
 ## Details
 - **GitHub API**, no clone; *under 5 s* for intellij-community
-- The name: front matter, else the directory
+- The name: front matter, else the directory; a number as the file writes it, `1.10`, not `1.1`; so is the description
 - The link pins the *scanned commit*
 - **Modified**: when the skill was last modified, the date of the *last commit that changed its directory*, up to the
   scanned commit; a local directory: its newest file's modification time
